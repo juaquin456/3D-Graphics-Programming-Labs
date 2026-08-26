@@ -8,7 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include_directories(${CMAKE_SOURCE_DIR}/../common/include)
 
 add_executable(learn_opengl main.cpp ${CMAKE_SOURCE_DIR}/../common/src/glad.c
-        mesh.h)
+        mesh.h
+        queue.h)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/../common/lib/libglfw3.a

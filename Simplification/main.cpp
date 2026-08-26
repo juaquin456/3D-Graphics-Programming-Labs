@@ -51,6 +51,8 @@ void process_input(GLFWwindow* window) {
 
 int draw(unsigned int& shaderProgram, GLFWwindow* window) {
     HalfEdgeContainer he_sphere = NewHalfEdgeContainer(NewSphere(1, 100, 100));
+    he_sphere.simplify(5000);
+    he_sphere.to_mesh().save("out.ply");
 
     unsigned int VBO, EBO, VAO;
     glGenBuffers(1, &VBO);
