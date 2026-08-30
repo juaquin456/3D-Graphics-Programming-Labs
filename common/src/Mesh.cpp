@@ -5,25 +5,26 @@
 
 static constexpr float PI = 3.14159265358979323846f;
 
-Mesh::Mesh(const std::string &filename) {
-    happly::PLYData ply_data(filename);
-    std::vector<std::array<double, 3>> v_pos = ply_data.getVertexPositions();
-    std::vector<std::vector<size_t>> f_ind = ply_data.getFaceIndices<size_t>();
-
-
-    for (auto & v_po : v_pos) {
-        vertices.push_back(v_po[0]);
-        vertices.push_back(v_po[1]);
-        vertices.push_back(v_po[2]);
+Mesh::Mesh(const std::string& filename) {
+    happly::PLYData ply_in(filename);
+    std::vector<std::array<double, 3>> v_pos = ply_in.getVertexPositions();
+    vertices.reserve(v_pos.size() * 3);
+    for (const auto& p : v_pos) {
+        vertices.push_back(static_cast<float>(p[0]));
+        vertices.push_back(static_cast<float>(p[1]));
+        vertices.push_back(static_cast<float>(p[2]));
     }
 
-    for (auto & i : f_ind) {
-        for (const auto v: i) {
-            indices.push_back(v);
+    std::vector<std::vector<size_t>> f_ind = ply_in.getFaceIndices<size_t>();
+    indices.reserve(f_ind.size() * 3);
+    for (const auto& f : f_ind) {
+        if (f.size() >= 3) {
+            indices.push_back(static_cast<int>(f[0]));
+            indices.push_back(static_cast<int>(f[1]));
+            indices.push_back(static_cast<int>(f[2]));
         }
     }
 }
-
 
 void Mesh::save(const std::string& filename) const {
     happly::PLYData ply_out;
@@ -116,6 +117,41 @@ Mesh NewSphere(float radius, int slices, int stacks) {
         m.indices.push_back(next_j);
         m.indices.push_back(south_pole_idx);
     }
+
+    return m;
+}
+
+Mesh NewCube(float size) {
+    Mesh m;
+    float h = size * 0.5f;
+
+    m.vertices = {
+        // Front
+        -h, -h,  h,
+         h, -h,  h,
+         h,  h,  h,
+        -h,  h,  h,
+        // Back
+        -h, -h, -h,
+         h, -h, -h,
+         h,  h, -h,
+        -h,  h, -h
+    };
+
+    m.indices = {
+        // Front
+        0, 1, 2,  2, 3, 0,
+        // Right
+        1, 5, 6,  6, 2, 1,
+        // Back
+        5, 4, 7,  7, 6, 5,
+        // Left
+        4, 0, 3,  3, 7, 4,
+        // Top
+        3, 2, 6,  6, 7, 3,
+        // Bottom
+        4, 5, 1,  1, 0, 4
+    };
 
     return m;
 }
