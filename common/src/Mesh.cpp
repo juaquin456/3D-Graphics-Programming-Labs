@@ -6,7 +6,7 @@
 static constexpr float PI = 3.14159265358979323846f;
 
 Mesh::Mesh(const std::string& filename) {
-    happly::PLYData ply_in(filename);
+    happly::PLYData ply_in(filename, true);
     std::vector<std::array<double, 3>> v_pos = ply_in.getVertexPositions();
     vertices.reserve(v_pos.size() * 3);
     for (const auto& p : v_pos) {
@@ -15,7 +15,7 @@ Mesh::Mesh(const std::string& filename) {
         vertices.push_back(static_cast<float>(p[2]));
     }
 
-    std::vector<std::vector<size_t>> f_ind = ply_in.getFaceIndices<size_t>();
+    std::vector<std::vector<unsigned int>> f_ind = ply_in.getFaceIndices<unsigned int>();
     indices.reserve(f_ind.size() * 3);
     for (const auto& f : f_ind) {
         if (f.size() >= 3) {
