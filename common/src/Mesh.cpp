@@ -47,6 +47,26 @@ void Mesh::save(const std::string& filename) const {
     ply_out.write(filename, happly::DataFormat::ASCII);
 }
 
+std::pair<linalg::aliases::float3, linalg::aliases::float3> Mesh::bounding_box() const {
+    float minx = std::numeric_limits<float>::max();
+    float miny = std::numeric_limits<float>::max();
+    float minz = std::numeric_limits<float>::max();
+    float maxx = std::numeric_limits<float>::lowest();
+    float maxy = std::numeric_limits<float>::lowest();
+    float maxz = std::numeric_limits<float>::lowest();
+
+#pragma omp simd
+    for (int i = 0; i < vertices.size(); i += 3) {
+        minx = std::min(minx, vertices[i + 0]);
+        miny = std::min(miny, vertices[i + 1]);
+        minz = std::min(minz, vertices[i + 2]);
+        maxx = std::max(maxx, vertices[i + 0]);
+        maxy = std::max(maxy, vertices[i + 1]);
+        maxz = std::max(maxz, vertices[i + 2]);
+    }
+    return {{minx, miny, minz}, {maxx, maxy, maxz}};
+}
+
 Mesh NewSphere(float radius, int slices, int stacks) {
     Mesh m;
 

@@ -4,7 +4,10 @@
 #include <string>
 #include <vector>
 
+#include "linalg.h"
+
 struct Mesh {
+
     std::vector<float> vertices; // 3 * nvertices
     std::vector<int> indices;    // 3 * faces
 
@@ -12,6 +15,7 @@ struct Mesh {
     explicit Mesh(const std::string& filename);
 
     void save(const std::string& filename) const;
+    std::pair<linalg::aliases::float3, linalg::aliases::float3> bounding_box() const;
 };
 
 Mesh NewSphere(float radius, int slices, int stacks);
