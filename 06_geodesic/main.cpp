@@ -289,7 +289,6 @@ std::vector<float> compute_fast_marching_distances(const HalfEdgeContainer& mesh
             }
         }
     }
-
     return distances;
 }
 int main() {
@@ -341,7 +340,7 @@ int main() {
     int projLoc  = glGetUniformLocation(shaderProgram, "uProjection");
     int modelLoc = glGetUniformLocation(shaderProgram, "uModel");
 
-    Mesh m("../../models/dragon.ply");
+    Mesh m("../../models/bunny1.ply");
     auto [l, u] = m.bounding_box();
     float3 center = (l + u) * 0.5f;
     float3 extent = u - l;
@@ -351,6 +350,18 @@ int main() {
 
     HalfEdgeContainer he = NewHalfEdgeContainer(m);
     auto vertex_distances = compute_fast_marching_distances(he, 10000);
+
+    float mx_dst = std::numeric_limits<float>::lowest();
+    for (int i = 0; i < vertex_distances.size(); i++) {
+        if (vertex_distances[i] != std::numeric_limits<float>::infinity()) {
+            mx_dst = std::max(mx_dst, vertex_distances[i]);
+        }
+    }
+
+    std::cout << mx_dst << std::endl;
+    for (int i = 0; i < vertex_distances.size(); i++) {
+        vertex_distances[i] /= mx_dst;
+    }
 
     unsigned int VAO, VBO[2], EBO;
     glGenVertexArrays(1, &VAO);
@@ -380,7 +391,7 @@ int main() {
                                          (float)SCR_WIDTH / (float)SCR_HEIGHT,
                                          0.1f, 100.0f);
 
-    float4x4 view = lookAt4x4(float3{0.0f, 0.5f, 2.f},
+    float4x4 view = lookAt4x4(float3{0.0f, -1.f, 2.f},
                               float3{0.0f, 0.0f, 0.0f},
                               float3{0.0f, 1.0f, 0.0f});
 
