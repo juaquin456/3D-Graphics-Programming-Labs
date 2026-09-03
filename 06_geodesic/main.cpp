@@ -340,7 +340,7 @@ int main() {
     int projLoc  = glGetUniformLocation(shaderProgram, "uProjection");
     int modelLoc = glGetUniformLocation(shaderProgram, "uModel");
 
-    Mesh m("../../models/bunny1.ply");
+    Mesh m("../../models/dragon.ply");
     auto [l, u] = m.bounding_box();
     float3 center = (l + u) * 0.5f;
     float3 extent = u - l;
@@ -391,7 +391,7 @@ int main() {
                                          (float)SCR_WIDTH / (float)SCR_HEIGHT,
                                          0.1f, 100.0f);
 
-    float4x4 view = lookAt4x4(float3{0.0f, -1.f, 2.f},
+    float4x4 view = lookAt4x4(float3{0.0f, 0.5f, 2.f},
                               float3{0.0f, 0.0f, 0.0f},
                               float3{0.0f, 1.0f, 0.0f});
 
