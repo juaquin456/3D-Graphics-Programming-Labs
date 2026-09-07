@@ -3,7 +3,6 @@
 #include <iostream>
 #include <map>
 
-using namespace linalg::aliases;
 
 int HalfEdgeContainer::n_vertices() const {
     return static_cast<int>(vertices.size() / 3);
@@ -13,11 +12,11 @@ int HalfEdgeContainer::n_hes() const {
     return static_cast<int>(he_to_vertex.size());
 }
 
-float3 HalfEdgeContainer::get_vertex_pos(int v_idx) const {
-    return float3{vertices[3 * v_idx], vertices[3 * v_idx + 1], vertices[3 * v_idx + 2]};
+glm::vec3 HalfEdgeContainer::get_vertex_pos(int v_idx) const {
+    return glm::vec3{vertices[3 * v_idx], vertices[3 * v_idx + 1], vertices[3 * v_idx + 2]};
 }
 
-float3 HalfEdgeContainer::get_vertex(int he) const {
+glm::vec3 HalfEdgeContainer::get_vertex(int he) const {
     int vertex_pos = he_to_vertex[he];
     return get_vertex_pos(vertex_pos);
 }
@@ -86,8 +85,8 @@ std::vector<int> HalfEdgeContainer::get_neighbors(int u) const {
 
 
 
-Mesh HalfEdgeContainer::to_mesh() const {
-    Mesh m;
+MeshData HalfEdgeContainer::to_mesh() const {
+    MeshData m;
     std::vector<int> v_remap(n_vertices(), -1);
     int new_v_count = 0;
 
@@ -117,7 +116,7 @@ Mesh HalfEdgeContainer::to_mesh() const {
     return m;
 }
 
-HalfEdgeContainer NewHalfEdgeContainer(const Mesh& m) {
+HalfEdgeContainer NewHalfEdgeContainer(const MeshData& m) {
     std::vector<int> he_to_vertex(m.indices.size());
     std::vector<int> vertex_to_he(m.vertices.size() / 3, -1);
     std::vector<int> twin(m.indices.size(), -1);

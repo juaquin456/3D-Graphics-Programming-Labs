@@ -1,32 +1,34 @@
-#include "common/Mesh.h"
+#include "common/MeshData.h"
 #include "happly.h"
 #include <array>
 #include <cmath>
 
 static constexpr float PI = 3.14159265358979323846f;
 
-Mesh::Mesh(const std::string& filename) {
+MeshData readPly(const std::string& filename) {
+    MeshData m;
     happly::PLYData ply_in(filename);
     std::vector<std::array<double, 3>> v_pos = ply_in.getVertexPositions();
-    vertices.reserve(v_pos.size() * 3);
+    m.vertices.reserve(v_pos.size() * 3);
     for (const auto& p : v_pos) {
-        vertices.push_back(static_cast<float>(p[0]));
-        vertices.push_back(static_cast<float>(p[1]));
-        vertices.push_back(static_cast<float>(p[2]));
+        m.vertices.push_back(static_cast<float>(p[0]));
+        m.vertices.push_back(static_cast<float>(p[1]));
+        m.vertices.push_back(static_cast<float>(p[2]));
     }
 
     std::vector<std::vector<size_t>> f_ind = ply_in.getFaceIndices<size_t>();
-    indices.reserve(f_ind.size() * 3);
+    m.indices.reserve(f_ind.size() * 3);
     for (const auto& f : f_ind) {
         if (f.size() >= 3) {
-            indices.push_back(static_cast<int>(f[0]));
-            indices.push_back(static_cast<int>(f[1]));
-            indices.push_back(static_cast<int>(f[2]));
+            m.indices.push_back(static_cast<int>(f[0]));
+            m.indices.push_back(static_cast<int>(f[1]));
+            m.indices.push_back(static_cast<int>(f[2]));
         }
     }
+    return m;
 }
 
-void Mesh::save(const std::string& filename) const {
+void MeshData::save(const std::string& filename) const {
     happly::PLYData ply_out;
 
     std::vector<std::array<double, 3>> out_vertices(vertices.size() / 3);
@@ -47,7 +49,7 @@ void Mesh::save(const std::string& filename) const {
     ply_out.write(filename, happly::DataFormat::ASCII);
 }
 
-std::pair<linalg::aliases::float3, linalg::aliases::float3> Mesh::bounding_box() const {
+std::pair<glm::vec3, glm::vec3> MeshData::bounding_box() const {
     float minx = std::numeric_limits<float>::max();
     float miny = std::numeric_limits<float>::max();
     float minz = std::numeric_limits<float>::max();
@@ -67,8 +69,8 @@ std::pair<linalg::aliases::float3, linalg::aliases::float3> Mesh::bounding_box()
     return {{minx, miny, minz}, {maxx, maxy, maxz}};
 }
 
-Mesh NewSphere(float radius, int slices, int stacks) {
-    Mesh m;
+MeshData NewSphere(float radius, int slices, int stacks) {
+    MeshData m;
 
     m.vertices.push_back(0.0f);
     m.vertices.push_back(0.0f);
@@ -141,8 +143,8 @@ Mesh NewSphere(float radius, int slices, int stacks) {
     return m;
 }
 
-Mesh NewCube(float size) {
-    Mesh m;
+MeshData NewCube(float size) {
+    MeshData m;
     float h = size * 0.5f;
 
     m.vertices = {

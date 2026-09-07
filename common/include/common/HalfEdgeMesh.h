@@ -2,8 +2,7 @@
 #define COMMON_HALFEDGEMESH_H
 
 #include <vector>
-#include "common/Mesh.h"
-#include "linalg.h"
+#include "common/MeshData.h"
 
 inline int next(int he) {
     int relative_pos = he % 3;
@@ -26,13 +25,13 @@ struct HalfEdgeContainer {
     int n_vertices() const;
     int n_hes() const;
 
-    linalg::aliases::float3 get_vertex_pos(int v_idx) const;
-    linalg::aliases::float3 get_vertex(int he) const;
+    glm::vec3 get_vertex_pos(int v_idx) const;
+    glm::vec3 get_vertex(int he) const;
     int get_he(int u, int v) const;
     std::vector<int> get_neighbors(int u) const;
-    Mesh to_mesh() const;
+    MeshData to_mesh() const;
 };
 
-HalfEdgeContainer NewHalfEdgeContainer(const Mesh& m);
+HalfEdgeContainer NewHalfEdgeContainer(const MeshData& m);
 
 #endif // COMMON_HALFEDGEMESH_H
