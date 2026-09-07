@@ -1,6 +1,6 @@
 #version 330 core
 layout (location = 0) in vec3 aPos;
-layout (location = 1) in float aColor;
+layout (location = 1) in vec2 aColor;
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
@@ -35,11 +35,9 @@ void main()
    vec4 worldPos = uModel * vec4(aPos, 1.0);
    FragPos = worldPos.xyz;
    gl_Position = uProjection * uView * worldPos;
-   float frequency = 500.0;
-   float wave = 0.5 + 0.5 * sin(aColor * frequency);
-    if (aColor > 1) {
-        Color = vec4(1, 0, 0, 1);
+    if (aColor.x > 1 || aColor.x < 0) {
+        Color = vec4(aColor.x, aColor.x, aColor.x, 1);
     } else {
-        Color = colormap(aColor);
+        Color = colormap(aColor.x);
     }
 };

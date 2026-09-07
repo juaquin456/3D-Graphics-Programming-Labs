@@ -3,11 +3,13 @@
 
 #include <string>
 #include <vector>
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 struct MeshData {
     std::vector<float> vertices; // 3 * nvertices
     std::vector<int> indices;    // 3 * faces
+    std::vector<glm::vec2> uvs;
 
     MeshData() = default;
 

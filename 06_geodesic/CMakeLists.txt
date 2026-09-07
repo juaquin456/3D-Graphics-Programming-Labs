@@ -14,4 +14,5 @@ target_link_libraries(geodesic PRIVATE
     common
     glad
     glfw
+    glm::glm
 )

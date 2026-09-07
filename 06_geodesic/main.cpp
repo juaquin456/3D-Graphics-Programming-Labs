@@ -4,17 +4,20 @@
 #include <cmath>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include <common/Mesh.h>
-#include "linalg.h"
+#include <common/MeshData.h>
+#include <common/MeshAsset.h>
+#include <common/RenderObject.h>
+#include <common/Camera.h>
 #include <queue>
 #include <limits>
 #include <utility>
 #include <fstream>
 #include <sstream>
+#include <glm/glm.hpp>
 
 #include "common/HalfEdgeMesh.h"
+#include "glm/gtc/type_ptr.hpp"
 
-using namespace linalg::aliases;
 
 const unsigned int SCR_WIDTH = 1280;
 const unsigned int SCR_HEIGHT = 720;
@@ -55,80 +58,6 @@ const char* fragmentShaderSource = "#version 330 core\n"
     "   FragColor = vec4(result, 1.0);\n"
     "}\n\0";
 
-float4x4 translation4x4(float tx, float ty, float tz) {
-    return float4x4{
-        float4{1.0f, 0.0f, 0.0f, 0.0f},
-        float4{0.0f, 1.0f, 0.0f, 0.0f},
-        float4{0.0f, 0.0f, 1.0f, 0.0f},
-        float4{  tx,   ty,   tz, 1.0f}
-    };
-}
-
-float4x4 scaling4x4(float sx, float sy, float sz) {
-    return float4x4{
-        float4{  sx, 0.0f, 0.0f, 0.0f},
-        float4{0.0f,   sy, 0.0f, 0.0f},
-        float4{0.0f, 0.0f,   sz, 0.0f},
-        float4{0.0f, 0.0f, 0.0f, 1.0f}
-    };
-}
-
-float4x4 rotationX4x4(float angle) {
-    float c = std::cos(angle);
-    float s = std::sin(angle);
-    return float4x4{
-        float4{1.0f, 0.0f, 0.0f, 0.0f},
-        float4{0.0f,    c,    s, 0.0f},
-        float4{0.0f,   -s,    c, 0.0f},
-        float4{0.0f, 0.0f, 0.0f, 1.0f}
-    };
-}
-
-float4x4 rotationY4x4(float angle) {
-    float c = std::cos(angle);
-    float s = std::sin(angle);
-    return float4x4{
-        float4{   c, 0.0f,   -s, 0.0f},
-        float4{0.0f, 1.0f, 0.0f, 0.0f},
-        float4{   s, 0.0f,    c, 0.0f},
-        float4{0.0f, 0.0f, 0.0f, 1.0f}
-    };
-}
-
-float4x4 rotationZ4x4(float angle) {
-    float c = std::cos(angle);
-    float s = std::sin(angle);
-    return float4x4{
-        float4{   c,    s, 0.0f, 0.0f},
-        float4{  -s,    c, 0.0f, 0.0f},
-        float4{0.0f, 0.0f, 1.0f, 0.0f},
-        float4{0.0f, 0.0f, 0.0f, 1.0f}
-    };
-}
-
-float4x4 perspective4x4(float fov_rad, float aspect, float near_z, float far_z) {
-    float tan_half_fov = std::tan(fov_rad / 2.0f);
-    float4x4 res(0.0f);
-    res[0][0] = 1.0f / (aspect * tan_half_fov);
-    res[1][1] = 1.0f / tan_half_fov;
-    res[2][2] = -(far_z + near_z) / (far_z - near_z);
-    res[2][3] = -1.0f;
-    res[3][2] = -(2.0f * far_z * near_z) / (far_z - near_z);
-    return res;
-}
-
-float4x4 lookAt4x4(const float3& eye, const float3& center, const float3& up) {
-    float3 f = normalize(center - eye);
-    float3 s = normalize(cross(f, up));
-    float3 u = cross(s, f);
-
-    float4x4 res(0.0f);
-    res[0] = float4{ s.x,  u.x, -f.x, 0.0f};
-    res[1] = float4{ s.y,  u.y, -f.y, 0.0f};
-    res[2] = float4{ s.z,  u.z, -f.z, 0.0f};
-    res[3] = float4{-dot(s, eye), -dot(u, eye), dot(f, eye), 1.0f};
-    return res;
-}
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -158,10 +87,10 @@ std::vector<float> compute_dijkstra_distances(const HalfEdgeContainer& mesh, int
             continue;
         }
 
-        linalg::aliases::float3 pos_u = mesh.get_vertex_pos(u);
+       glm::vec3 pos_u = mesh.get_vertex_pos(u);
 
         for (int v : mesh.get_neighbors(u)) {
-            linalg::aliases::float3 pos_v = mesh.get_vertex_pos(v);
+            glm::vec3 pos_v = mesh.get_vertex_pos(v);
 
             float dx = pos_v.x - pos_u.x;
             float dy = pos_v.y - pos_u.y;
@@ -180,30 +109,30 @@ std::vector<float> compute_dijkstra_distances(const HalfEdgeContainer& mesh, int
     return distances;
 }
 
-float update_triangle(const float3& x0, const float3& x1, const float3& x2, float t1, float t2) {
-    float3 v1 = x1 - x0;
-    float3 v2 = x2 - x0;
+float update_triangle(const glm::vec3& x0, const glm::vec3& x1, const glm::vec3& x2, float t1, float t2) {
+    glm::vec3 v1 = x1 - x0;
+    glm::vec3 v2 = x2 - x0;
 
-    linalg::mat<float, 3, 2> X{v1, v2};
+    glm::mat2x3 X(v1, v2);
 
-    auto E = mul(transpose(X), X);
+    auto E = glm::transpose(X) * X;
 
-    float det = determinant(E);
+    float det = glm::determinant(E);
     if (det <= 1e-8f) {
         return std::min(t1 + std::sqrt(E[0][0]), t2 + std::sqrt(E[1][1]));
     }
 
-    auto Q = inverse(E);
+    auto Q = glm::inverse(E);
 
     float q11 = Q[0][0], q12 = Q[0][1];
     float q21 = Q[1][0], q22 = Q[1][1];
 
-    linalg::vec<float, 2> one{1.0f, 1.0f};
-    linalg::vec<float, 2> T{t1, t2};
+    glm::vec2 one{1.0f, 1.0f};
+    glm::vec2 T{t1, t2};
 
-    float a = dot(one, mul(Q, one));
-    float b = dot(one, mul(Q, T));
-    float c = dot(T, mul(Q, T)) - 1.0f;
+    float a = dot(one, Q * one);
+    float b = dot(one, Q *  T);
+    float c = dot(T, Q *T) - 1.0f;
 
     float disc = b * b - a * c;
     float t0 = std::numeric_limits<float>::infinity();
@@ -240,7 +169,7 @@ std::vector<float> compute_fast_marching_distances(const HalfEdgeContainer& mesh
         if (vis[u]) return;
 
         float min_dist = distances[u];
-        float3 pos_u = mesh.get_vertex_pos(u);
+        glm::vec3 pos_u = mesh.get_vertex_pos(u);
 
         int start_he = mesh.vertex_to_he[u];
         if (start_he == -1) return;
@@ -253,8 +182,8 @@ std::vector<float> compute_fast_marching_distances(const HalfEdgeContainer& mesh
             int v1 = mesh.he_to_vertex[next_he];
             int v2 = mesh.he_to_vertex[prev_he];
 
-            float3 pos_v1 = mesh.get_vertex_pos(v1);
-            float3 pos_v2 = mesh.get_vertex_pos(v2);
+            glm::vec3 pos_v1 = mesh.get_vertex_pos(v1);
+            glm::vec3 pos_v2 = mesh.get_vertex_pos(v2);
 
             float t1 = distances[v1];
             float t2 = distances[v2];
@@ -340,80 +269,39 @@ int main() {
     int projLoc  = glGetUniformLocation(shaderProgram, "uProjection");
     int modelLoc = glGetUniformLocation(shaderProgram, "uModel");
 
-    Mesh m("../../models/dragon.ply");
-    auto [l, u] = m.bounding_box();
-    float3 center = (l + u) * 0.5f;
-    float3 extent = u - l;
-
-    float max_extent = std::max({extent.x, extent.y, extent.z});
-    float scale_factor = 1.0f / max_extent;
-
-    HalfEdgeContainer he = NewHalfEdgeContainer(m);
-    auto vertex_distances = compute_fast_marching_distances(he, 10000);
-
+    MeshData dragonData = readPly("../../models/bunny.ply");
+    HalfEdgeContainer he = NewHalfEdgeContainer(dragonData);
+    auto vertex_distances = compute_fast_marching_distances(he, 1000);
     float mx_dst = std::numeric_limits<float>::lowest();
-    for (int i = 0; i < vertex_distances.size(); i++) {
-        if (vertex_distances[i] != std::numeric_limits<float>::infinity()) {
-            mx_dst = std::max(mx_dst, vertex_distances[i]);
+    for (float vertex_distance : vertex_distances) {
+        if (vertex_distance != std::numeric_limits<float>::infinity()) {
+            mx_dst = std::max(mx_dst, vertex_distance);
         }
     }
-
-    std::cout << mx_dst << std::endl;
-    for (int i = 0; i < vertex_distances.size(); i++) {
-        vertex_distances[i] /= mx_dst;
+    std::cerr << "vertex_distances: " << mx_dst << std::endl;
+    for (float & vertex_distance : vertex_distances) {
+        vertex_distance /= mx_dst;
+        dragonData.uvs.emplace_back(vertex_distance, vertex_distance);
     }
 
-    unsigned int VAO, VBO[2], EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(2, VBO);
-    glGenBuffers(1, &EBO);
+    auto dragonAsset = std::make_shared<MeshAsset>(dragonData);
+    RenderObject dragon(dragonAsset);
+    dragon.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    dragon.scale = glm::vec3(1.0f, 1.0f, 1.0f);
 
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO[0]);
-    glBufferData(GL_ARRAY_BUFFER, he.vertices.size() * sizeof(float), he.vertices.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO[1]);
-    glBufferData(GL_ARRAY_BUFFER, vertex_distances.size() * sizeof(float), vertex_distances.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 1 * sizeof(float), (void*)0); // size = 1
-    glEnableVertexAttribArray(1);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, he.he_to_vertex.size() * sizeof(int), he.he_to_vertex.data(), GL_STATIC_DRAW);
-
-    glBindVertexArray(0);
-
-
-
-    float4x4 projection = perspective4x4(45.0f * (3.14159265f / 180.0f),
-                                         (float)SCR_WIDTH / (float)SCR_HEIGHT,
-                                         0.1f, 100.0f);
-
-    float4x4 view = lookAt4x4(float3{0.0f, 0.5f, 2.f},
-                              float3{0.0f, 0.0f, 0.0f},
-                              float3{0.0f, 1.0f, 0.0f});
-
-    float4x4 model = mul(scaling4x4(scale_factor, scale_factor, scale_factor),
-                         translation4x4(-center.x, -center.y, -center.z));
-
+    Camera cam;
     while (!glfwWindowShouldClose(window)) {
         process_input(window);
-
 
         glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
 
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, &view[0][0]);
-        glUniformMatrix4fv(projLoc, 1, GL_FALSE, &projection[0][0]);
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &model[0][0]);
+        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(cam.getViewMatrix()));
+        glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(cam.getProjectionMatrix()));
 
-        glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES, he.he_to_vertex.size(), GL_UNSIGNED_INT, 0);
-        glBindVertexArray(0);
+        dragon.draw(modelLoc);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
