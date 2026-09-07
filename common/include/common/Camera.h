@@ -12,8 +12,6 @@
 
 class Camera {
 public:
-    glm::quat cameraOrientation{1, 0, 0, 0};
-
     glm::vec3 position{0, 0.5, 2};
     glm::vec3 target{0, 0, 0};
     glm::vec3 up{0, 1, 0};
@@ -27,8 +25,6 @@ public:
     Camera(glm::vec3 eye, glm::vec3 target, float fov, float aspect);
     [[nodiscard]] glm::mat4 getViewMatrix() const;
     [[nodiscard]] glm::mat4 getProjectionMatrix() const;
-    void updateArcball(const glm::vec3& lastMouseVec, const glm::vec3& currentMouseVec);
-    static glm::vec3 getArcballVector(int x, int y, int width, int height);
 };
 
 #endif //ANIMATION_CAMERA_H
