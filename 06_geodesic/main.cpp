@@ -289,7 +289,6 @@ std::vector<float> compute_fast_marching_distances(const HalfEdgeContainer& mesh
             }
         }
     }
-
     return distances;
 }
 int main() {
@@ -351,6 +350,18 @@ int main() {
 
     HalfEdgeContainer he = NewHalfEdgeContainer(m);
     auto vertex_distances = compute_fast_marching_distances(he, 10000);
+
+    float mx_dst = std::numeric_limits<float>::lowest();
+    for (int i = 0; i < vertex_distances.size(); i++) {
+        if (vertex_distances[i] != std::numeric_limits<float>::infinity()) {
+            mx_dst = std::max(mx_dst, vertex_distances[i]);
+        }
+    }
+
+    std::cout << mx_dst << std::endl;
+    for (int i = 0; i < vertex_distances.size(); i++) {
+        vertex_distances[i] /= mx_dst;
+    }
 
     unsigned int VAO, VBO[2], EBO;
     glGenVertexArrays(1, &VAO);

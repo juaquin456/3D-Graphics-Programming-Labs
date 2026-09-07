@@ -36,6 +36,10 @@ void main()
    FragPos = worldPos.xyz;
    gl_Position = uProjection * uView * worldPos;
    float frequency = 500.0;
-    float wave = 0.5 + 0.5 * sin(aColor * frequency);
-   Color = colormap(pow(wave, 8.));
+   float wave = 0.5 + 0.5 * sin(aColor * frequency);
+    if (aColor > 1) {
+        Color = vec4(1, 0, 0, 1);
+    } else {
+        Color = colormap(aColor);
+    }
 };
