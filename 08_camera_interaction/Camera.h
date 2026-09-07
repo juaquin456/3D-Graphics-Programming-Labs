@@ -23,7 +23,7 @@ public:
     static glm::vec3 getArcballVector(int x, int y, int width, int height) {
         glm::vec3 P = glm::vec3(
             (2.0f * x - width) / (float)width,
-            (width - 2.0f * y) / (float)height,
+            (height - 2.0f * y) / (float)height,
             0.0f
         );
 

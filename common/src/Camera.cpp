@@ -18,3 +18,26 @@ glm::mat4 Camera::getViewMatrix() const {
 glm::mat4 Camera::getProjectionMatrix() const {
     return glm::perspective(glm::radians(fov_deg), aspect_ratio, near_z, far_z);
 }
+
+void Camera::rotateOrbit(float deltaX, float deltaY, float sensitivity) {
+    glm::vec3 offset = position - target;
+    float radius = glm::length(offset);
+    if (radius < 1e-4f) return;
+
+    glm::vec3 forward = glm::normalize(-offset);
+    glm::vec3 right = glm::normalize(glm::cross(forward, up));
+    glm::quat pitch = glm::angleAxis(-deltaY * sensitivity, right);
+
+    glm::vec3 candidateOffset = pitch * offset;
+
+    float cosAngle = glm::dot(glm::normalize(candidateOffset), up);
+
+    if (std::abs(cosAngle) < 0.998f) {
+        offset = candidateOffset;
+    }
+
+    glm::quat yaw = glm::angleAxis(-deltaX * sensitivity, up);
+    offset = yaw * offset;
+
+    position = target + offset;
+}

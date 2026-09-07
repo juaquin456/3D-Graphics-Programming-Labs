@@ -25,6 +25,7 @@ public:
     Camera(glm::vec3 eye, glm::vec3 target, float fov, float aspect);
     [[nodiscard]] glm::mat4 getViewMatrix() const;
     [[nodiscard]] glm::mat4 getProjectionMatrix() const;
+    void rotateOrbit(float deltaX, float deltaY, float sensitivity);
 };
 
 #endif //ANIMATION_CAMERA_H

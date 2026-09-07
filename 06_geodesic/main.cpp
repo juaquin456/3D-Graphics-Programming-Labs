@@ -22,6 +22,34 @@
 const unsigned int SCR_WIDTH = 1280;
 const unsigned int SCR_HEIGHT = 720;
 
+bool isDragging = false;
+double lastMouseX = 0.0;
+double lastMouseY = 0.0;
+
+Camera cam;
+
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (action == GLFW_PRESS) {
+            isDragging = true;
+            glfwGetCursorPos(window, &lastMouseX, &lastMouseY);
+        } else if (action == GLFW_RELEASE) {
+            isDragging = false;
+        }
+    }
+}
+
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
+    if (!isDragging) return;
+
+    float deltaX = static_cast<float>(xpos - lastMouseX);
+    float deltaY = static_cast<float>(ypos - lastMouseY);
+
+    lastMouseX = xpos;
+    lastMouseY = ypos;
+
+    cam.rotateOrbit(deltaX, deltaY, 0.005);
+}
 std::string readShaderCode(const char* filePath) {
     std::string shaderCode;
     std::ifstream shaderFile;
@@ -246,7 +274,8 @@ int main() {
     glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glEnable(GL_DEPTH_TEST);
-
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetCursorPosCallback(window, cursor_position_callback);
     auto vertexShaderSource = readShaderCode("../shader.frag");
     const char* vertexShaderChars = vertexShaderSource.c_str();
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -269,7 +298,7 @@ int main() {
     int projLoc  = glGetUniformLocation(shaderProgram, "uProjection");
     int modelLoc = glGetUniformLocation(shaderProgram, "uModel");
 
-    MeshData dragonData = readPly("../../models/bunny.ply");
+    MeshData dragonData = readPly("../../models/bunny1.ply");
     HalfEdgeContainer he = NewHalfEdgeContainer(dragonData);
     auto vertex_distances = compute_fast_marching_distances(he, 1000);
     float mx_dst = std::numeric_limits<float>::lowest();
@@ -289,7 +318,6 @@ int main() {
     dragon.position = glm::vec3(0.0f, 0.0f, 0.0f);
     dragon.scale = glm::vec3(1.0f, 1.0f, 1.0f);
 
-    Camera cam;
     while (!glfwWindowShouldClose(window)) {
         process_input(window);
 
