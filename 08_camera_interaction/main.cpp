@@ -1,18 +1,16 @@
 #include <algorithm>
 #include <iostream>
-#include <vector>
 #include <cmath>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <common/MeshData.h>
-#include <utility>
 #include <fstream>
 #include <sstream>
 
-#include "common/Camera.h"
-#include "glm/fwd.hpp"
+#include <glm/fwd.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "Camera.h"
 #include "common/MeshAsset.h"
 #include "common/RenderObject.h"
 
