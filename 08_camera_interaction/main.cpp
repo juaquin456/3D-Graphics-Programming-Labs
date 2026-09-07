@@ -44,7 +44,10 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
 
     lastMouseVec = currentMouseVec;
 }
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    cam.zoom(static_cast<float>(yoffset));
 
+}
 std::string readShaderCode(const char* filePath) {
     std::string shaderCode;
     std::ifstream shaderFile;
@@ -89,6 +92,9 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 void process_input(GLFWwindow* window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+    if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) {
+        cam.isAnimated = !cam.isAnimated;
+    }
 }
 
 
@@ -120,6 +126,7 @@ int main() {
     glEnable(GL_DEPTH_TEST);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
+    glfwSetScrollCallback(window, scroll_callback);
     auto vertexShaderSource = readShaderCode("../shader.frag");
     const char* vertexShaderChars = vertexShaderSource.c_str();
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -152,7 +159,7 @@ int main() {
         process_input(window);
         glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+        cam.updateAnimation(0.2);
         glUseProgram(shaderProgram);
 
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(cam.getViewMatrix()));

@@ -12,6 +12,7 @@ class Camera {
 public:
     glm::quat cameraOrientation{1.0f, 0.0f, 0.0f, 0.0f};
     float cameraDistance{2.5f};
+    bool isAnimated{false};
 
     float fov_deg{45.0f};
     float aspect_ratio{1280.0f / 720.0f};
@@ -58,6 +59,21 @@ public:
 
     [[nodiscard]] glm::mat4 getProjectionMatrix() const {
         return glm::perspective(glm::radians(fov_deg), aspect_ratio, near_z, far_z);
+    }
+
+    void zoom(float yoffset, float zoomSensitivity = 0.2f) {
+        cameraDistance -= yoffset * zoomSensitivity;
+
+        if (cameraDistance < 0.1f) {
+            cameraDistance = 0.1f;
+        }
+    }
+
+    void updateAnimation(float speed = 0.5f) {
+        if (!isAnimated) return;
+
+        glm::quat autoRotation = glm::angleAxis(speed, glm::vec3(0.0f, 1.0f, 0.0f));
+        cameraOrientation = glm::normalize(autoRotation * cameraOrientation);
     }
 };
 #endif //ANIMATION_CAMERA_H
