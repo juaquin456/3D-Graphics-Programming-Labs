@@ -75,5 +75,15 @@ public:
         glm::quat autoRotation = glm::angleAxis(speed, glm::vec3(0.0f, 1.0f, 0.0f));
         cameraOrientation = glm::normalize(autoRotation * cameraOrientation);
     }
+
+    glm::vec3 getPosition() const {
+        glm::vec3 backwardDir = glm::vec3(0.0f, 0.0f, this->cameraDistance);
+
+        glm::vec3 rotatedDir = cameraOrientation * backwardDir;
+
+        glm::vec3 cameraPosition = rotatedDir;
+
+        return cameraPosition;
+    }
 };
 #endif //ANIMATION_CAMERA_H

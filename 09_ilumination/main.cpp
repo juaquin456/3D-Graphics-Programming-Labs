@@ -113,10 +113,11 @@ int main() {
     glEnable(GL_DEPTH_TEST);
 
 
-    Shader phongShader("../phong.vert", "../phong.frag");
-    Shader gourandShader("../gourand.vert", "../gourand.frag");
+    Shader phongShader("../../shaders/phong.vert", "../../shaders/phong.frag");
+    Shader gourandShader("../../shaders/gourand.vert", "../../shaders/gourand.frag");
 
-    MeshData dragonData = readPly("../../models/bunny.ply");
+    // MeshData dragonData = readPly("../../models/bunny.ply");
+    MeshData dragonData = NewCube(1);
     dragonData.recompute_normals();
     auto dragonAsset = std::make_shared<MeshAsset>(dragonData);
 

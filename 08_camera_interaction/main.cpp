@@ -127,27 +127,9 @@ int main() {
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetScrollCallback(window, scroll_callback);
-    auto vertexShaderSource = readShaderCode("../shader.frag");
-    const char* vertexShaderChars = vertexShaderSource.c_str();
-    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexShaderChars, NULL);
-    glCompileShader(vertexShader);
-
-    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-    glCompileShader(fragmentShader);
-
-    unsigned int shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
-
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-
-    int viewLoc  = glGetUniformLocation(shaderProgram, "uView");
-    int projLoc  = glGetUniformLocation(shaderProgram, "uProjection");
-    int modelLoc = glGetUniformLocation(shaderProgram, "uModel");
+    Shader shader{"../../shaders/debug_flat.vert", "../../shaders/debug_flat.frag"};
+    int viewLoc  = glGetUniformLocation(shader.ID, "view");
+    int projLoc  = glGetUniformLocation(shader.ID, "projection");
 
     MeshData dragonData = readPly("../../models/dragon.ply");
     auto dragonAsset = std::make_shared<MeshAsset>(dragonData);
@@ -160,18 +142,16 @@ int main() {
         glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         cam.updateAnimation(0.2);
-        glUseProgram(shaderProgram);
+        shader.use();
 
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(cam.getViewMatrix()));
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(cam.getProjectionMatrix()));
 
-        dragonL.draw(modelLoc);
+        dragonL.draw(shader);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
-
-    glDeleteProgram(shaderProgram);
 
     glfwTerminate();
     return 0;

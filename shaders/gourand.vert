@@ -20,6 +20,8 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
+uniform bool phong;
+
 uniform Material material;
 uniform Light light;
 uniform vec3 viewPos;
@@ -36,8 +38,14 @@ void main() {
     vec3 diffuse = light.color * (diff * material.Kd);
 
     vec3 viewDir = normalize(viewPos - FragPos);
-    vec3 reflectDir = reflect(-lightDir, norm);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
+    float spec;
+    if (phong) {
+        vec3 reflectDir = reflect(-lightDir, norm);
+        spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
+    } else {
+        vec3 halfwayDir = normalize(lightDir + viewDir);
+        spec = pow(max(dot(norm, halfwayDir), 0.0), 4 * material.shininess);
+    }
     vec3 specular = light.color * (spec * material.Ks);
 
     LightingColor = ambient + diffuse + specular;
