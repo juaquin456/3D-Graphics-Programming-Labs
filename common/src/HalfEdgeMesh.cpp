@@ -13,7 +13,7 @@ int HalfEdgeContainer::n_hes() const {
 }
 
 glm::vec3 HalfEdgeContainer::get_vertex_pos(int v_idx) const {
-    return glm::vec3{vertices[3 * v_idx], vertices[3 * v_idx + 1], vertices[3 * v_idx + 2]};
+    return vertices[v_idx];
 }
 
 glm::vec3 HalfEdgeContainer::get_vertex(int he) const {
@@ -105,9 +105,7 @@ MeshData HalfEdgeContainer::to_mesh() const {
                 int old_v = idxs[k];
                 if (v_remap[old_v] == -1) {
                     v_remap[old_v] = new_v_count++;
-                    m.vertices.push_back(vertices[3 * old_v]);
-                    m.vertices.push_back(vertices[3 * old_v + 1]);
-                    m.vertices.push_back(vertices[3 * old_v + 2]);
+                    m.vertices.emplace_back(vertices[old_v]);
                 }
                 m.indices.push_back(v_remap[old_v]);
             }
@@ -118,7 +116,7 @@ MeshData HalfEdgeContainer::to_mesh() const {
 
 HalfEdgeContainer NewHalfEdgeContainer(const MeshData& m) {
     std::vector<int> he_to_vertex(m.indices.size());
-    std::vector<int> vertex_to_he(m.vertices.size() / 3, -1);
+    std::vector<int> vertex_to_he(m.vertices.size(), -1);
     std::vector<int> twin(m.indices.size(), -1);
 
     std::map<std::pair<int, int>, int> edge_to_he;

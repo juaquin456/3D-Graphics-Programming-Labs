@@ -4,6 +4,9 @@
 
 #include "common/RenderObject.h"
 #include <glm/gtc/type_ptr.hpp>
+
+#include "common/Shader.h"
+
 glm::mat4 RenderObject::getModelMatrix() const {
     glm::mat4 model = glm::mat4(1.0f);
     model = glm::translate(model, position);
@@ -16,15 +19,15 @@ glm::mat4 RenderObject::getModelMatrix() const {
     return model;
 }
 
-void RenderObject::draw(GLint modelLoc, GLint colorLoc) const {
+void RenderObject::draw(const Shader& shader) const {
     if (!meshAsset) return;
 
     glm::mat4 model = getModelMatrix();
-    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-
-    if (colorLoc != -1) {
-        glUniform3fv(colorLoc, 1, glm::value_ptr(color));
-    }
+    glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniform3fv(glGetUniformLocation(shader.ID, "material.Ka"), 1, glm::value_ptr(material.Ka));
+    glUniform3fv(glGetUniformLocation(shader.ID, "material.Kd"), 1, glm::value_ptr(material.Kd));
+    glUniform3fv(glGetUniformLocation(shader.ID, "material.Ks"), 1, glm::value_ptr(material.Ks));
+    glUniform1f(glGetUniformLocation(shader.ID, "material.shininess"), material.shininess);
 
     meshAsset->draw();
 }

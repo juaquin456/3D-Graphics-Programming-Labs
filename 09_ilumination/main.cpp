@@ -59,16 +59,21 @@ int main() {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glEnable(GL_DEPTH_TEST);
 
-    Shader baseShader("../shader.vert", "../shader.frag");
 
-    int viewLoc  = glGetUniformLocation(baseShader.ID, "uView");
-    int projLoc  = glGetUniformLocation(baseShader.ID, "uProjection");
-    int modelLoc = glGetUniformLocation(baseShader.ID, "uModel");
+    Shader phongShader("../phong.vert", "../phong.frag");
+    Shader gourandShader("../gourand.vert", "../gourand.frag");
+
+    Shader shader = gourandShader;
+
+    int viewLoc  = glGetUniformLocation(shader.ID, "view");
+    int projLoc  = glGetUniformLocation(shader.ID, "projection");
 
     MeshData dragonData = readPly("../../models/dragon.ply");
+    dragonData.recompute_normals();
     auto dragonAsset = std::make_shared<MeshAsset>(dragonData);
 
     RenderObject dragonL(dragonAsset);
+    dragonL.material = Material::Gold();
     Camera cam;
 
     const float radius = 2.0f;
@@ -77,20 +82,20 @@ int main() {
         process_input(window);
         float time = static_cast<float>(glfwGetTime());
 
-        float camX = std::sin(0.8 * time) * radius;
-        float camZ = std::cos(0.8*time) * radius;
-
-        cam.position =  glm::vec3{camX, camY, camZ};
-
         glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        baseShader.use();
+
+        shader.use();
+
+        glUniform3f(glGetUniformLocation(shader.ID, "light.position"), 1.2f, 2.0f, 4.0f);
+        glUniform3f(glGetUniformLocation(shader.ID, "light.color"), 1.0f, 1.0f, 1.0f);
+        glUniform3f(glGetUniformLocation(shader.ID, "viewPos"), cam.position.x, cam.position.y, cam.position.z);
 
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(cam.getViewMatrix()));
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(cam.getProjectionMatrix()));
 
-        dragonL.draw(modelLoc);
+        dragonL.draw(shader);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

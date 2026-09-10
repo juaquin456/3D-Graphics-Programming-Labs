@@ -17,7 +17,7 @@ inline int prev(int he) {
 }
 
 struct HalfEdgeContainer {
-    std::vector<float> vertices;   // 3 * nvertices
+    std::vector<glm::vec3> vertices;   // 3 * nvertices
     std::vector<int> vertex_to_he; // nvertices
     std::vector<int> he_to_vertex; // 3 * faces = halfedges
     std::vector<int> twin;         // 3 * faces = halfedges

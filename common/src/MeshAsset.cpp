@@ -44,7 +44,7 @@ void MeshAsset::setupGPU(const MeshData &data) {
     glBindVertexArray(m_VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Pos);
-    glBufferData(GL_ARRAY_BUFFER, data.vertices.size() * sizeof(float), data.vertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, data.vertices.size() * sizeof(glm::vec3), data.vertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
@@ -52,8 +52,15 @@ void MeshAsset::setupGPU(const MeshData &data) {
         glGenBuffers(1, &m_VBO_UV);
         glBindBuffer(GL_ARRAY_BUFFER, m_VBO_UV);
         glBufferData(GL_ARRAY_BUFFER, data.uvs.size() * sizeof(glm::vec2), data.uvs.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
         glEnableVertexAttribArray(1);
+    }
+    if (!data.normals.empty()) {
+        glGenBuffers(1, &m_VBO_Norm);
+        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Norm);
+        glBufferData(GL_ARRAY_BUFFER, data.normals.size() * sizeof(glm::vec3), data.normals.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+        glEnableVertexAttribArray(2);
     }
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_EBO);

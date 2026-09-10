@@ -3,17 +3,17 @@
 #include <array>
 #include <cmath>
 
+#include "glm/geometric.hpp"
+
 static constexpr float PI = 3.14159265358979323846f;
 
 MeshData readPly(const std::string& filename) {
     MeshData m;
     happly::PLYData ply_in(filename);
     std::vector<std::array<double, 3>> v_pos = ply_in.getVertexPositions();
-    m.vertices.reserve(v_pos.size() * 3);
+    m.vertices.reserve(v_pos.size());
     for (const auto& p : v_pos) {
-        m.vertices.push_back(static_cast<float>(p[0]));
-        m.vertices.push_back(static_cast<float>(p[1]));
-        m.vertices.push_back(static_cast<float>(p[2]));
+        m.vertices.emplace_back(p[0], p[1], p[2]);
     }
 
     std::vector<std::vector<size_t>> f_ind = ply_in.getFaceIndices<size_t>();
@@ -31,9 +31,9 @@ MeshData readPly(const std::string& filename) {
 void MeshData::save(const std::string& filename) const {
     happly::PLYData ply_out;
 
-    std::vector<std::array<double, 3>> out_vertices(vertices.size() / 3);
-    for (size_t i = 0; i < vertices.size(); i += 3) {
-        out_vertices[i / 3] = {vertices[i], vertices[i + 1], vertices[i + 2]};
+    std::vector<std::array<double, 3>> out_vertices(vertices.size());
+    for (size_t i = 0; i < vertices.size(); i++) {
+        out_vertices[i / 3] = {vertices[i].x, vertices[i].y, vertices[i].z};
     }
 
     std::vector<std::vector<size_t>> out_face_indices(indices.size() / 3);
@@ -58,34 +58,53 @@ std::pair<glm::vec3, glm::vec3> MeshData::bounding_box() const {
     float maxz = std::numeric_limits<float>::lowest();
 
 #pragma omp simd
-    for (int i = 0; i < vertices.size(); i += 3) {
-        minx = std::min(minx, vertices[i + 0]);
-        miny = std::min(miny, vertices[i + 1]);
-        minz = std::min(minz, vertices[i + 2]);
-        maxx = std::max(maxx, vertices[i + 0]);
-        maxy = std::max(maxy, vertices[i + 1]);
-        maxz = std::max(maxz, vertices[i + 2]);
+    for (int i = 0; i < vertices.size(); i++) {
+        minx = std::min(minx, vertices[i].x);
+        miny = std::min(miny, vertices[i].y);
+        minz = std::min(minz, vertices[i].z);
+        maxx = std::max(maxx, vertices[i].x);
+        maxy = std::max(maxy, vertices[i].y);
+        maxz = std::max(maxz, vertices[i].z);
     }
     return {{minx, miny, minz}, {maxx, maxy, maxz}};
 }
 
 void MeshData::recompute_normals() {
-    if (!normals.empty()) return;
-    std::vector<std::vector<std::pair<glm::vec3, float>>> normals_per_vertex;
-    for (int i = 0; i < indices.size(); i+=3) {
-        glm::vec3 face_normal = glm::
-        float area;
+    size_t num_vertices = vertices.size();
+    normals.assign(num_vertices, glm::vec3(0.0f));
 
-        normals_per_vertex[indices[i]].push_back({face_normal, area});
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        int idx0 = indices[i];
+        int idx1 = indices[i + 1];
+        int idx2 = indices[i + 2];
+
+        glm::vec3 v0 = vertices[idx0];
+        glm::vec3 v1 = vertices[idx1];
+        glm::vec3 v2 = vertices[idx2];
+
+        glm::vec3 edge1 = v1 - v0;
+        glm::vec3 edge2 = v2 - v0;
+        glm::vec3 face_normal = glm::cross(edge1, edge2);
+
+        normals[idx0] += face_normal;
+        normals[idx1] += face_normal;
+        normals[idx2] += face_normal;
+    }
+
+    for (size_t i = 0; i < num_vertices; ++i) {
+        float len = glm::length(normals[i]);
+        if (len > 1e-8f) {
+            normals[i] /= len;
+        } else {
+            normals[i] = glm::vec3(0.0f, 1.0f, 0.0f);
+        }
     }
 }
 
 MeshData NewSphere(float radius, int slices, int stacks) {
     MeshData m;
 
-    m.vertices.push_back(0.0f);
-    m.vertices.push_back(0.0f);
-    m.vertices.push_back(radius);
+    m.vertices.emplace_back(0.0f, 0, radius);
 
     for (int i = 1; i < stacks; i++) {
         float a = PI * i / stacks;
@@ -98,17 +117,13 @@ MeshData NewSphere(float radius, int slices, int stacks) {
             float y = radius * sin_a * std::sin(b);
             float z = radius * cos_a;
 
-            m.vertices.push_back(x);
-            m.vertices.push_back(y);
-            m.vertices.push_back(z);
+            m.vertices.emplace_back(x, y, z);
         }
     }
 
-    m.vertices.push_back(0.0f);
-    m.vertices.push_back(0.0f);
-    m.vertices.push_back(-radius);
+    m.vertices.emplace_back(0, 0, -radius);
 
-    int south_pole_idx = static_cast<int>(m.vertices.size() / 3) - 1;
+    int south_pole_idx = static_cast<int>(m.vertices.size()) - 1;
 
     for (int j = 0; j < slices; j++) {
         int current = 1 + j;
@@ -160,15 +175,15 @@ MeshData NewCube(float size) {
 
     m.vertices = {
         // Front
-        -h, -h,  h,
-         h, -h,  h,
-         h,  h,  h,
-        -h,  h,  h,
+        glm::vec3{-h, -h,  h},
+        glm::vec3{h, -h,  h},
+        glm::vec3{h,  h,  h},
+        glm::vec3{-h,  h,  h},
         // Back
-        -h, -h, -h,
-         h, -h, -h,
-         h,  h, -h,
-        -h,  h, -h
+        glm::vec3{-h, -h, -h},
+        glm::vec3{h, -h, -h},
+        glm::vec3{h,  h, -h},
+        glm::vec3{-h,  h, -h}
     };
 
     m.indices = {

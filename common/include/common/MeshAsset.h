@@ -29,7 +29,7 @@ public:
     void draw() const;
 
 private:
-    unsigned int m_VAO{0}, m_VBO_Pos{0}, m_VBO_UV{0}, m_EBO{0};
+    unsigned int m_VAO{0}, m_VBO_Pos{0}, m_VBO_UV{0}, m_EBO{0}, m_VBO_Norm{0};
     GLsizei m_indexCount{0};
 
     void setupGPU(const MeshData& data);

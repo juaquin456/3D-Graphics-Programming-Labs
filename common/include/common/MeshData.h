@@ -7,7 +7,7 @@
 #include <glm/vec3.hpp>
 
 struct MeshData {
-    std::vector<float> vertices; // 3 * nvertices
+    std::vector<glm::vec3> vertices; // 3 * nvertices
     std::vector<int> indices;    // 3 * faces
     std::vector<glm::vec2> uvs;
     std::vector<glm::vec3> normals;
