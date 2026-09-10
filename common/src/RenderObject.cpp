@@ -7,16 +7,25 @@
 
 #include "common/Shader.h"
 
+void RenderObject::rotateAxis(float angleDegrees, const glm::vec3 &axis) {
+    glm::quat deltaRot = glm::angleAxis(glm::radians(angleDegrees), glm::normalize(axis));
+    rotation = glm::normalize(deltaRot * rotation);
+}
+
 glm::mat4 RenderObject::getModelMatrix() const {
-    glm::mat4 model = glm::mat4(1.0f);
+    glm::mat4 model(1.0f);
     model = glm::translate(model, position);
     model = glm::scale(model, scale);
-
+    model = model * glm::mat4_cast(rotation);
     if (meshAsset) {
         model = glm::scale(model, glm::vec3(meshAsset->autoScaleFactor));
         model = glm::translate(model, -meshAsset->localCenter);
     }
     return model;
+}
+
+void RenderObject::setRotationEuler(float pitchDeg, float yawDeg, float rollDeg) {
+    rotation = glm::quat(glm::vec3(glm::radians(pitchDeg), glm::radians(yawDeg), glm::radians(rollDeg)));
 }
 
 void RenderObject::draw(const Shader& shader) const {

@@ -4,6 +4,8 @@
 
 #ifndef ANIMATION_RENDEROBJECT_H
 #define ANIMATION_RENDEROBJECT_H
+#include <glm/gtc/quaternion.hpp>
+#include <utility>
 #include "MeshAsset.h"
 #include "Shader.h"
 #include "glm/fwd.hpp"
@@ -93,12 +95,14 @@ public:
     Material material;
 
     glm::vec3 position{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
     glm::vec3 scale{1.0f};
     glm::vec3 color{1.0f};
 
-    RenderObject(MeshAsset::Ptr asset) : meshAsset(asset) {}
-
-    glm::mat4 getModelMatrix() const;
+    explicit RenderObject(MeshAsset::Ptr asset) : meshAsset(std::move(asset)) {}
+    void rotateAxis(float angleDegrees, const glm::vec3& axis);
+    void setRotationEuler(float pitchDeg, float yawDeg, float rollDeg);
+    [[nodiscard]] glm::mat4 getModelMatrix() const;
 
     void draw(const Shader& shader) const;
 };

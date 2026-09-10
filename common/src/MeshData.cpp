@@ -4,8 +4,8 @@
 #include <cmath>
 
 #include "glm/geometric.hpp"
+#include "glm/ext/scalar_constants.hpp"
 
-static constexpr float PI = 3.14159265358979323846f;
 
 MeshData readPly(const std::string& filename) {
     MeshData m;
@@ -103,16 +103,16 @@ void MeshData::recompute_normals() {
 
 MeshData NewSphere(float radius, int slices, int stacks) {
     MeshData m;
+    const float PI = glm::pi<float>();
+    m.vertices.emplace_back(0.0f, 0.0f, radius);
 
-    m.vertices.emplace_back(0.0f, 0, radius);
-
-    for (int i = 1; i < stacks; i++) {
-        float a = PI * i / stacks;
+    for (int i = 1; i < stacks; ++i) {
+        float a = PI * static_cast<float>(i) / static_cast<float>(stacks);
         float sin_a = std::sin(a);
         float cos_a = std::cos(a);
 
-        for (int j = 0; j < slices; j++) {
-            float b = 2.0f * PI * j / slices;
+        for (int j = 0; j < slices; ++j) {
+            float b = 2.0f * PI * static_cast<float>(j) / static_cast<float>(slices);
             float x = radius * sin_a * std::cos(b);
             float y = radius * sin_a * std::sin(b);
             float z = radius * cos_a;
@@ -121,24 +121,23 @@ MeshData NewSphere(float radius, int slices, int stacks) {
         }
     }
 
-    m.vertices.emplace_back(0, 0, -radius);
-
+    m.vertices.emplace_back(0.0f, 0.0f, -radius);
     int south_pole_idx = static_cast<int>(m.vertices.size()) - 1;
 
-    for (int j = 0; j < slices; j++) {
+    for (int j = 0; j < slices; ++j) {
         int current = 1 + j;
-        int next_j = 1 + (j + 1) % slices;
+        int next = 1 + (j + 1) % slices;
 
         m.indices.push_back(0);
-        m.indices.push_back(next_j);
         m.indices.push_back(current);
+        m.indices.push_back(next);
     }
 
-    for (int i = 0; i < stacks - 2; i++) {
+    for (int i = 0; i < stacks - 2; ++i) {
         int ring1 = 1 + i * slices;
         int ring2 = 1 + (i + 1) * slices;
 
-        for (int j = 0; j < slices; j++) {
+        for (int j = 0; j < slices; ++j) {
             int next_j = (j + 1) % slices;
 
             int u0 = ring1 + j;
@@ -156,14 +155,14 @@ MeshData NewSphere(float radius, int slices, int stacks) {
         }
     }
 
-    int last_ring = 1 + (stacks - 2) * slices;
-    for (int j = 0; j < slices; j++) {
-        int current = last_ring + j;
-        int next_j = last_ring + (j + 1) % slices;
+    int last_ring_start = 1 + (stacks - 2) * slices;
+    for (int j = 0; j < slices; ++j) {
+        int current = last_ring_start + j;
+        int next = last_ring_start + (j + 1) % slices;
 
         m.indices.push_back(current);
-        m.indices.push_back(next_j);
         m.indices.push_back(south_pole_idx);
+        m.indices.push_back(next);
     }
 
     return m;
