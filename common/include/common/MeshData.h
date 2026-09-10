@@ -10,11 +10,13 @@ struct MeshData {
     std::vector<float> vertices; // 3 * nvertices
     std::vector<int> indices;    // 3 * faces
     std::vector<glm::vec2> uvs;
+    std::vector<glm::vec3> normals;
 
     MeshData() = default;
 
     void save(const std::string& filename) const;
     std::pair<glm::vec3, glm::vec3> bounding_box() const;
+    void recompute_normals();
 };
 
 MeshData readPly(const std::string& filename);

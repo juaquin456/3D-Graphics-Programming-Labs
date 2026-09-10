@@ -69,6 +69,17 @@ std::pair<glm::vec3, glm::vec3> MeshData::bounding_box() const {
     return {{minx, miny, minz}, {maxx, maxy, maxz}};
 }
 
+void MeshData::recompute_normals() {
+    if (!normals.empty()) return;
+    std::vector<std::vector<std::pair<glm::vec3, float>>> normals_per_vertex;
+    for (int i = 0; i < indices.size(); i+=3) {
+        glm::vec3 face_normal = glm::
+        float area;
+
+        normals_per_vertex[indices[i]].push_back({face_normal, area});
+    }
+}
+
 MeshData NewSphere(float radius, int slices, int stacks) {
     MeshData m;
 

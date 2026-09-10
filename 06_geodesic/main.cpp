@@ -298,7 +298,7 @@ int main() {
     int projLoc  = glGetUniformLocation(shaderProgram, "uProjection");
     int modelLoc = glGetUniformLocation(shaderProgram, "uModel");
 
-    MeshData dragonData = readPly("../../models/bunny1.ply");
+    MeshData dragonData = readPly("../../models/dragon.ply");
     HalfEdgeContainer he = NewHalfEdgeContainer(dragonData);
     auto vertex_distances = compute_fast_marching_distances(he, 1000);
     float mx_dst = std::numeric_limits<float>::lowest();
