@@ -138,13 +138,12 @@ int main() {
 
         Shader& shader = usePhong ? phongShader : gourandShader;
         shader.use();
+        shader.setVec3("light.position", glm::vec3(1.2, 2, 4));
+        shader.setVec3("light.color", glm::vec3(1.0f, 1.0f, 1.0f));
+        shader.setVec3("viewPos", cam.position);
 
-        glUniform3f(glGetUniformLocation(shader.ID, "light.position"), 1.2f, 2.0f, 4.0f);
-        glUniform3f(glGetUniformLocation(shader.ID, "light.color"), 1.0f, 1.0f, 1.0f);
-        glUniform3f(glGetUniformLocation(shader.ID, "viewPos"), cam.position.x, cam.position.y, cam.position.z);
-
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID, "view"), 1, GL_FALSE, glm::value_ptr(cam.getViewMatrix()));
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID, "projection"), 1, GL_FALSE, glm::value_ptr(cam.getProjectionMatrix()));
+        shader.setMat4("view", cam.getViewMatrix());
+        shader.setMat4("projection", cam.getProjectionMatrix());
 
         dragonL.rotateAxis(30.0f * delta_time, glm::vec3(0.0f, 1.0f, 0.0f));
         dragonL.draw(shader);

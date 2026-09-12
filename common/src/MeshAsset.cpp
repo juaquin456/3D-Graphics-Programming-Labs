@@ -24,6 +24,7 @@ MeshAsset::~MeshAsset() {
         glDeleteVertexArrays(1, &m_VAO);
         glDeleteBuffers(1, &m_VBO_Pos);
         if (m_VBO_UV != 0) glDeleteBuffers(1, &m_VBO_UV);
+        if (m_VBO_Norm != 0) glDeleteBuffers(1, &m_VBO_Norm);
         glDeleteBuffers(1, &m_EBO);
     }
 }
