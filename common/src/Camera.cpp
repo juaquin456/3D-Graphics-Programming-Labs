@@ -41,3 +41,9 @@ void Camera::rotateOrbit(float deltaX, float deltaY, float sensitivity) {
 
     position = target + offset;
 }
+
+void Camera::bind(const Shader &shader) const {
+    shader.setMat4("view", getViewMatrix());
+    shader.setMat4("projection", getProjectionMatrix());
+    shader.setVec3("viewPos", position);
+}

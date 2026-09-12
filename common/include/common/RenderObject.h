@@ -114,5 +114,6 @@ struct DirectionalLight {
     glm::vec3 target{0, 0, 0};
 
     [[nodiscard]] glm::mat4 getLightSpaceMatrix(float orthoSize = 10, float nearPlane = 1, float farPlane = 20) const;
+    void bind(const Shader& shader) const;
 };
 #endif //ANIMATION_RENDEROBJECT_H

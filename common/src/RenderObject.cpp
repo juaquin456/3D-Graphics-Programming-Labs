@@ -5,8 +5,6 @@
 #include "common/RenderObject.h"
 #include <glm/gtc/type_ptr.hpp>
 
-#include "common/Shader.h"
-
 void RenderObject::rotateAxis(float angleDegrees, const glm::vec3 &axis) {
     glm::quat deltaRot = glm::angleAxis(glm::radians(angleDegrees), glm::normalize(axis));
     rotation = glm::normalize(deltaRot * rotation);
@@ -56,4 +54,10 @@ glm::mat4 DirectionalLight::getLightSpaceMatrix(float orthoSize, float nearPlane
     glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
 
     return lightProjection * lightView;
+}
+
+void DirectionalLight::bind(const Shader &shader) const {
+    shader.setVec3("light.position", position);
+    shader.setVec3("light.color", color);
+    shader.setMat4("lightSpaceMatrix", getLightSpaceMatrix());
 }

@@ -5,9 +5,9 @@
 #ifndef ANIMATION_CAMERA_H
 #define ANIMATION_CAMERA_H
 
-#include "glm/vec3.hpp"
-#include "glm/gtc/matrix_transform.hpp"
+#include "Shader.h"
 #include "glm/glm.hpp"
+#include "glm/gtc/matrix_transform.hpp"
 #include "glm/gtc/quaternion.hpp"
 
 class Camera {
@@ -26,6 +26,7 @@ public:
     [[nodiscard]] glm::mat4 getViewMatrix() const;
     [[nodiscard]] glm::mat4 getProjectionMatrix() const;
     void rotateOrbit(float deltaX, float deltaY, float sensitivity);
+    void bind(const Shader& shader) const;
 };
 
 #endif //ANIMATION_CAMERA_H

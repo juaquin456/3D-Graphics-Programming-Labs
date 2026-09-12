@@ -136,6 +136,7 @@ int main() {
 
         shadowMap.bindForWriting();
         depthShader.use();
+        glCullFace(GL_FRONT);
         depthShader.setMat4("lightSpaceMatrix", light.getLightSpaceMatrix());
         floor.drawGeometry(depthShader);
         bunny.drawGeometry(depthShader);
@@ -146,14 +147,9 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         sceneShader.use();
-        sceneShader.setMat4("view", cam.getViewMatrix());
-        sceneShader.setMat4("projection", cam.getProjectionMatrix());
-        sceneShader.setMat4("lightSpaceMatrix", light.getLightSpaceMatrix());
-
-        sceneShader.setVec3("light.position", light.position);
-        sceneShader.setVec3("light.color", light.color);
-        sceneShader.setVec3("viewPos", cam.position);
-
+        glCullFace(GL_BACK);
+        cam.bind(sceneShader);
+        light.bind(sceneShader);
         shadowMap.bindTexture(1);
         sceneShader.setInt("shadowMap", 1);
 
