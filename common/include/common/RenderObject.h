@@ -106,4 +106,15 @@ public:
 
     void draw(const Shader& shader) const;
 };
+
+class LightObject {
+    public:
+    glm::vec3 position{1, 2, 4};
+    glm::vec3 color{1, 1, 1};
+    float near_z{1};
+    float far_z{7.5};
+
+
+    glm::mat4 getLightSpaceMatrix() const;
+};
 #endif //ANIMATION_RENDEROBJECT_H
