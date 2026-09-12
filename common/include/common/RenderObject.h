@@ -105,16 +105,14 @@ public:
     [[nodiscard]] glm::mat4 getModelMatrix() const;
 
     void draw(const Shader& shader) const;
+    void drawGeometry(const Shader& shader) const;
 };
 
-class LightObject {
-    public:
-    glm::vec3 position{1, 2, 4};
+struct DirectionalLight {
+    glm::vec3 position{2, 4, 1};
     glm::vec3 color{1, 1, 1};
-    float near_z{1};
-    float far_z{7.5};
+    glm::vec3 target{0, 0, 0};
 
-
-    glm::mat4 getLightSpaceMatrix() const;
+    [[nodiscard]] glm::mat4 getLightSpaceMatrix(float orthoSize = 10, float nearPlane = 1, float farPlane = 20) const;
 };
 #endif //ANIMATION_RENDEROBJECT_H

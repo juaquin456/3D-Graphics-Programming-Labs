@@ -17,6 +17,7 @@ add_library(common STATIC
     src/Camera.cpp
     src/RenderObject.cpp
     src/MeshAsset.cpp
+    src/ShadowMap.cpp
 )
 
 target_include_directories(common PUBLIC

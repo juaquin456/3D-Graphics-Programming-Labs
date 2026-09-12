@@ -12,16 +12,15 @@ struct MeshData {
     std::vector<glm::vec2> uvs;
     std::vector<glm::vec3> normals;
 
-    MeshData() = default;
-
     void save(const std::string& filename) const;
     std::pair<glm::vec3, glm::vec3> bounding_box() const;
     void recompute_normals();
+
+    static MeshData readPly(const std::string& filename);
+    static MeshData NewSphere(float radius, int slices, int stacks);
+    static MeshData NewCube(float size);
 };
 
-MeshData readPly(const std::string& filename);
 
-MeshData NewSphere(float radius, int slices, int stacks);
-MeshData NewCube(float size);
 
 #endif // COMMON_MESH_H

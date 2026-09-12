@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <glad/glad.h>
 
-MeshAsset::MeshAsset(const std::string &filename): MeshAsset(readPly(filename)) {}
+MeshAsset::MeshAsset(const std::string &filename): MeshAsset(MeshData::readPly(filename)) {}
 
 MeshAsset::MeshAsset(const MeshData &data) {
     auto [min_pt, max_pt] = data.bounding_box();

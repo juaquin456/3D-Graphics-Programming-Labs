@@ -16,6 +16,7 @@
 #include "common/MeshAsset.h"
 #include "common/RenderObject.h"
 #include "common/Shader.h"
+#include "common/ShadowMap.h"
 
 
 const unsigned int SCR_WIDTH = 1280;
@@ -67,20 +68,10 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
     }
 }
 
-void process_input(GLFWwindow* window, bool& usePhong, bool& spacePressedLastFrame) {
+void process_input(GLFWwindow* window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !spacePressedLastFrame) {
-        usePhong = !usePhong;
-        spacePressedLastFrame = true;
-        std::cout << "[LOG] Shader cambiado a: "
-                   << (usePhong ? "PHONG (Fragment Shader)" : "GOURAUD (Vertex Shader)")
-                   << std::endl;
-    }
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE) {
-        spacePressedLastFrame = false;
-    }
 }
 int main() {
     if (!glfwInit()) {
@@ -113,46 +104,61 @@ int main() {
     glEnable(GL_DEPTH_TEST);
 
 
-    Shader smdShader("../../shaders/smd.vert", "../../shaders/smd.frag");
-    Shader phongSmdShader("../../shaders/phong_smd.vert", "../../shaders/phong_smd.frag");
-    LightObject light;
-    // MeshData dragonData = readPly("../../models/bunny.ply");
-    MeshData dragonData = NewCube(1);
-    dragonData.recompute_normals();
-    auto dragonAsset = std::make_shared<MeshAsset>(dragonData);
+    Shader depthShader("../../shaders/shadow_depth.vert", "../../shaders/shadow_depth.frag");
+    Shader sceneShader("../../shaders/shadow_phong.vert", "../../shaders/shadow_phong.frag");
 
-    RenderObject dragonL(dragonAsset);
-    dragonL.material = Material::Gold();
+    DirectionalLight light;
 
-    bool usePhong = true;
-    bool spacePressedLastFrame = false;
-    float last_frame = 0;
+    ShadowMap shadowMap;
+    shadowMap.init(2048, 2048);
+
+    auto planeAsset = std::make_shared<MeshAsset>(MeshData::NewCube(1));
+    RenderObject floor(planeAsset);
+    floor.scale = glm::vec3(10, 0.1, 10);
+    floor.position = glm::vec3(0.0f, -0.5, 0.0f);
+    floor.material = Material::Silver();
+
+
+    auto bunnyAsset = std::make_shared<MeshAsset>(MeshData::readPly("../../models/bunny.ply"));
+    RenderObject bunny(bunnyAsset);
+    bunny.position = glm::vec3(0.0f, 0.5, 0.0f);
+    bunny.material = Material::Gold();
+    float lastFrameTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
-        process_input(window, usePhong, spacePressedLastFrame);
-        float time = static_cast<float>(glfwGetTime());
-        float delta_time = time - last_frame;
-        last_frame = time;
-        dragonL.rotateAxis(30.0f * delta_time, glm::vec3(0.0f, 1.0f, 0.0f));
+        process_input(window);
+
+        float currentFrameTime = glfwGetTime();
+        auto deltaTime = static_cast<float>(currentFrameTime - lastFrameTime);
+        lastFrameTime = currentFrameTime;
+
+        bunny.rotateAxis(30 * deltaTime, glm::vec3(0.0f, 1.0f, 0.0f));
+        light.position.x = glm::sin(currentFrameTime)*5;
+
+        shadowMap.bindForWriting();
+        depthShader.use();
+        depthShader.setMat4("lightSpaceMatrix", light.getLightSpaceMatrix());
+        floor.drawGeometry(depthShader);
+        bunny.drawGeometry(depthShader);
+
+        shadowMap.unbind(SCR_WIDTH, SCR_HEIGHT);
 
         glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        smdShader.use();
+        sceneShader.use();
+        sceneShader.setMat4("view", cam.getViewMatrix());
+        sceneShader.setMat4("projection", cam.getProjectionMatrix());
+        sceneShader.setMat4("lightSpaceMatrix", light.getLightSpaceMatrix());
 
-        glUniformMatrix4fv(glGetUniformLocation(smdShader.ID, "lightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(light
-            .getLightSpaceMatrix()));
-        dragonL.draw(smdShader);
+        sceneShader.setVec3("light.position", light.position);
+        sceneShader.setVec3("light.color", light.color);
+        sceneShader.setVec3("viewPos", cam.position);
 
-        Shader& shader = phongSmdShader;
-        glUniform3f(glGetUniformLocation(shader.ID, "light.position"), light.position.x, light.position.y, light.position.z);
-        glUniform3f(glGetUniformLocation(shader.ID, "light.color"), light.color.x, light.color.y, light.color.z);
+        shadowMap.bindTexture(1);
+        sceneShader.setInt("shadowMap", 1);
 
-        glUniform3f(glGetUniformLocation(shader.ID, "viewPos"), cam.position.x, cam.position.y, cam.position.z);
-
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID, "view"), 1, GL_FALSE, glm::value_ptr(cam.getViewMatrix()));
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID, "projection"), 1, GL_FALSE, glm::value_ptr(cam.getProjectionMatrix()));
-
-        dragonL.draw(smdShader);
+        floor.draw(sceneShader);
+        bunny.draw(sceneShader);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

@@ -41,11 +41,19 @@ void RenderObject::draw(const Shader& shader) const {
     meshAsset->draw();
 }
 
-glm::mat4 LightObject::getLightSpaceMatrix() const {
+void RenderObject::drawGeometry(const Shader &shader) const {
+    if (!meshAsset) return;
+
+    glm::mat4 model = getModelMatrix();
+    glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    meshAsset->draw();
+}
+
+glm::mat4 DirectionalLight::getLightSpaceMatrix(float orthoSize, float nearPlane, float farPlane) const {
     glm::mat4 lightView = glm::lookAt(position,
-                                  glm::vec3( 0.0f, 0.0f,  0.0f),
+                                  target,
                                   glm::vec3( 0.0f, 1.0f,  0.0f));
-    glm::mat4 lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_z, far_z);
+    glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
 
     return lightProjection * lightView;
 }

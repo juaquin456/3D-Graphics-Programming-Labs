@@ -7,7 +7,7 @@
 #include "glm/ext/scalar_constants.hpp"
 
 
-MeshData readPly(const std::string& filename) {
+MeshData MeshData::readPly(const std::string& filename) {
     MeshData m;
     happly::PLYData ply_in(filename);
     std::vector<std::array<double, 3>> v_pos = ply_in.getVertexPositions();
@@ -25,6 +25,8 @@ MeshData readPly(const std::string& filename) {
             m.indices.push_back(static_cast<int>(f[2]));
         }
     }
+
+    m.recompute_normals();
     return m;
 }
 
@@ -101,7 +103,7 @@ void MeshData::recompute_normals() {
     }
 }
 
-MeshData NewSphere(float radius, int slices, int stacks) {
+MeshData MeshData::NewSphere(float radius, int slices, int stacks) {
     MeshData m;
     const float PI = glm::pi<float>();
     m.vertices.emplace_back(0.0f, 0.0f, radius);
@@ -165,40 +167,55 @@ MeshData NewSphere(float radius, int slices, int stacks) {
         m.indices.push_back(next);
     }
 
+    m.recompute_normals();
     return m;
 }
 
-MeshData NewCube(float size) {
+MeshData MeshData::NewCube(float size) {
     MeshData m;
     float h = size * 0.5f;
 
     m.vertices = {
-        // Front
-        glm::vec3{-h, -h,  h},
-        glm::vec3{h, -h,  h},
-        glm::vec3{h,  h,  h},
-        glm::vec3{-h,  h,  h},
-        // Back
-        glm::vec3{-h, -h, -h},
-        glm::vec3{h, -h, -h},
-        glm::vec3{h,  h, -h},
-        glm::vec3{-h,  h, -h}
+        // Front face (+Z)
+        {-h, -h,  h}, { h, -h,  h}, { h,  h,  h}, {-h,  h,  h},
+        // Back face (-Z)
+        { h, -h, -h}, {-h, -h, -h}, {-h,  h, -h}, { h,  h, -h},
+        // Top face (+Y)
+        {-h,  h,  h}, { h,  h,  h}, { h,  h, -h}, {-h,  h, -h},
+        // Bottom face (-Y)
+        {-h, -h, -h}, { h, -h, -h}, { h, -h,  h}, {-h, -h,  h},
+        // Right face (+X)
+        { h, -h,  h}, { h, -h, -h}, { h,  h, -h}, { h,  h,  h},
+        // Left face (-X)
+        {-h, -h, -h}, {-h, -h,  h}, {-h,  h,  h}, {-h,  h, -h}
     };
 
-    m.indices = {
-        // Front
-        0, 1, 2,  2, 3, 0,
-        // Right
-        1, 5, 6,  6, 2, 1,
-        // Back
-        5, 4, 7,  7, 6, 5,
-        // Left
-        4, 0, 3,  3, 7, 4,
-        // Top
-        3, 2, 6,  6, 7, 3,
-        // Bottom
-        4, 5, 1,  1, 0, 4
+    m.normals = {
+        // Front (+Z)
+        {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1},
+        // Back (-Z)
+        {0, 0, -1}, {0, 0, -1}, {0, 0, -1}, {0, 0, -1},
+        // Top (+Y) -> La cara del suelo que mira arriba
+        {0, 1, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0},
+        // Bottom (-Y)
+        {0, -1, 0}, {0, -1, 0}, {0, -1, 0}, {0, -1, 0},
+        // Right (+X)
+        {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
+        // Left (-X)
+        {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0}
     };
+
+    m.indices.reserve(36);
+    for (int i = 0; i < 6; ++i) {
+        int offset = i * 4;
+        m.indices.push_back(offset + 0);
+        m.indices.push_back(offset + 1);
+        m.indices.push_back(offset + 2);
+
+        m.indices.push_back(offset + 2);
+        m.indices.push_back(offset + 3);
+        m.indices.push_back(offset + 0);
+    }
 
     return m;
 }
