@@ -136,7 +136,6 @@ int main() {
 
         shadowMap.bindForWriting();
         depthShader.use();
-        glCullFace(GL_FRONT);
         depthShader.setMat4("lightSpaceMatrix", light.getLightSpaceMatrix());
         floor.drawGeometry(depthShader);
         bunny.drawGeometry(depthShader);
@@ -147,7 +146,6 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         sceneShader.use();
-        glCullFace(GL_BACK);
         cam.bind(sceneShader);
         light.bind(sceneShader);
         shadowMap.bindTexture(1);

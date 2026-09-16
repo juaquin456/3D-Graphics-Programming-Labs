@@ -117,7 +117,7 @@ int main() {
     Shader gourandShader("../../shaders/gourand.vert", "../../shaders/gourand.frag");
 
     // MeshData dragonData = readPly("../../models/bunny.ply");
-    MeshData dragonData = NewCube(1);
+    MeshData dragonData = MeshData::NewSphere(1, 10, 10);
     dragonData.recompute_normals();
     auto dragonAsset = std::make_shared<MeshAsset>(dragonData);
 
