@@ -29,8 +29,8 @@ double lastMouseX = 0, lastMouseY = 0;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
-    SCR_HEIGHT = height;
     SCR_WIDTH = width;
+    SCR_HEIGHT = height;
     cam.aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
 }
 
@@ -107,7 +107,7 @@ int main() {
 
 
     Shader depthShader("../../shaders/shadow_depth.vert", "../../shaders/shadow_depth.frag");
-    Shader sceneShader("../../shaders/shadow_phong.vert", "../../shaders/shadow_phong.frag");
+    Shader sceneShader("../../shaders/texture.vert", "../../shaders/texture.frag");
 
     DirectionalLight light;
 
@@ -118,37 +118,42 @@ int main() {
     RenderObject floor(planeAsset);
     floor.scale = glm::vec3(10, 0.1, 10);
     floor.position = glm::vec3(0.0f, -0.5, 0.0f);
-    floor.material = Material::Silver();
+    floor.materialTex.diffuse = std::make_shared<Texture>("../../textures/container2.png");
+    floor.materialTex.specular = std::make_shared<Texture>("../../textures/container2_specular.png");
+    // floor.materialTex.Ks = Material::Chalk().Ks;
+    floor.materialTex.Ka = Material::Chalk().Ka;
+    floor.materialTex.shininess = Material::Chalk().shininess;
 
 
     auto bunnyAsset = std::make_shared<MeshAsset>(MeshData::readPly("../../models/bunny.ply"));
     RenderObject bunny(bunnyAsset);
     bunny.position = glm::vec3(0.0f, 0.5, 0.0f);
     bunny.material = Material::Gold();
-    float lastFrameTime = glfwGetTime();
+    float lastFrameTime= glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
         process_input(window);
 
         float currentFrameTime = glfwGetTime();
         auto deltaTime = static_cast<float>(currentFrameTime - lastFrameTime);
         lastFrameTime = currentFrameTime;
-        glCullFace(GL_FRONT);
-        // bunny.rotateAxis(30 * deltaTime, glm::vec3(0.0f, 1.0f, 0.0f));
+
+        bunny.rotateAxis(30 * deltaTime, glm::vec3(0.0f, 1.0f, 0.0f));
         light.position.x = glm::sin(currentFrameTime)*5;
 
         shadowMap.bindForWriting();
         depthShader.use();
+        glCullFace(GL_FRONT);
         depthShader.setMat4("lightSpaceMatrix", light.getLightSpaceMatrix());
         floor.drawGeometry(depthShader);
         bunny.drawGeometry(depthShader);
 
         shadowMap.unbind(SCR_WIDTH, SCR_HEIGHT);
 
-        glCullFace(GL_BACK);
         glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         sceneShader.use();
+        glCullFace(GL_BACK);
         cam.bind(sceneShader);
         light.bind(sceneShader);
         shadowMap.bindTexture(1);

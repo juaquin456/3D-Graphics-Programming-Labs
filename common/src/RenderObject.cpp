@@ -3,7 +3,6 @@
 //
 
 #include "common/RenderObject.h"
-#include <glm/gtc/type_ptr.hpp>
 
 void RenderObject::rotateAxis(float angleDegrees, const glm::vec3 &axis) {
     glm::quat deltaRot = glm::angleAxis(glm::radians(angleDegrees), glm::normalize(axis));
@@ -31,10 +30,25 @@ void RenderObject::draw(const Shader& shader) const {
 
     glm::mat4 model = getModelMatrix();
     glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
-    glUniform3fv(glGetUniformLocation(shader.ID, "material.Ka"), 1, glm::value_ptr(material.Ka));
-    glUniform3fv(glGetUniformLocation(shader.ID, "material.Kd"), 1, glm::value_ptr(material.Kd));
-    glUniform3fv(glGetUniformLocation(shader.ID, "material.Ks"), 1, glm::value_ptr(material.Ks));
-    glUniform1f(glGetUniformLocation(shader.ID, "material.shininess"), material.shininess);
+
+    if (materialTex.diffuse) {
+        shader.setInt("materialType", 1);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, materialTex.diffuse->textureID);
+        glUniform1i(glGetUniformLocation(shader.ID, "materialTex.diffuse"), 0);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, materialTex.specular->textureID);
+        glUniform1i(glGetUniformLocation(shader.ID, "materialTex.specular"), 2);
+        //shader.setVec3("materialTex.Ks", materialTex.Ks);
+        shader.setVec3("materialTex.Ka", materialTex.Ka);
+        shader.setFloat("materialTex.shininess", materialTex.shininess);
+    } else {
+        shader.setInt("materialType", 0);
+        glUniform3fv(glGetUniformLocation(shader.ID, "material.Kd"), 1, glm::value_ptr(material.Kd));
+        glUniform3fv(glGetUniformLocation(shader.ID, "material.Ks"), 1, glm::value_ptr(material.Ks));
+        glUniform3fv(glGetUniformLocation(shader.ID, "material.Ka"), 1, glm::value_ptr(material.Ka));
+        shader.setFloat("material.shininess", material.shininess);
+    }
 
     meshAsset->draw();
 }

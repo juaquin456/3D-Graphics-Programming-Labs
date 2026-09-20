@@ -4,11 +4,10 @@
 
 #ifndef ANIMATION_RENDEROBJECT_H
 #define ANIMATION_RENDEROBJECT_H
-#include <glm/gtc/quaternion.hpp>
 #include <utility>
 #include "MeshAsset.h"
 #include "Shader.h"
-#include "glm/fwd.hpp"
+#include "Texture.h"
 
 struct Material {
     glm::vec3 Ka{0.2f, 0.2f, 0.2f};
@@ -89,17 +88,33 @@ struct Material {
     }
 };
 
+struct MaterialTex {
+    Texture::Ptr diffuse;
+    glm::vec3 Ka;
+    glm::vec3 Ks;
+    float shininess;
+};
+
+struct MaterialTex2 {
+    Texture::Ptr diffuse;
+    Texture::Ptr specular;
+    glm::vec3 Ka;
+    float shininess;
+};
 class RenderObject {
 public:
     MeshAsset::Ptr meshAsset;
     Material material;
+    MaterialTex2 materialTex;
 
     glm::vec3 position{0.0f};
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
     glm::vec3 scale{1.0f};
     glm::vec3 color{1.0f};
 
-    explicit RenderObject(MeshAsset::Ptr asset) : meshAsset(std::move(asset)) {}
+    explicit RenderObject(MeshAsset::Ptr asset) : meshAsset(std::move(asset)) {
+    }
+
     void rotateAxis(float angleDegrees, const glm::vec3& axis);
     void setRotationEuler(float pitchDeg, float yawDeg, float rollDeg);
     [[nodiscard]] glm::mat4 getModelMatrix() const;
@@ -110,8 +125,9 @@ public:
 
 struct DirectionalLight {
     glm::vec3 position{2, 4, 1};
-    glm::vec3 color{1, 1, 1};
     glm::vec3 target{0, 0, 0};
+
+    glm::vec3 color{1, 1, 1}; // TODO: add ambient, diffuse and specular
 
     [[nodiscard]] glm::mat4 getLightSpaceMatrix(float orthoSize = 10, float nearPlane = 1, float farPlane = 20) const;
     void bind(const Shader& shader) const;

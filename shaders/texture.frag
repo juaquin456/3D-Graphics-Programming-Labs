@@ -4,6 +4,7 @@ out vec4 FragColor;
 in vec3 FragPos;
 in vec3 Normal;
 in vec4 FragPosLightSpace;
+in vec2 TexCoord;
 
 struct Material {
   vec3 Ka;
@@ -12,15 +13,26 @@ struct Material {
   float shininess;
 };
 
+struct MaterialTex {
+  sampler2D diffuse;
+  sampler2D specular;
+  vec3 Ka;
+  float shininess;
+};
+
 struct Light {
   vec3 position;
   vec3 color;
 };
 
+
+uniform int materialType;
 uniform Material material;
+uniform MaterialTex materialTex;
 uniform Light light;
 uniform vec3 viewPos;
 uniform sampler2D shadowMap;
+
 
 float calculateShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
   vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
@@ -44,17 +56,35 @@ float calculateShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
 }
 
 void main() {
-  vec3 ambient = light.color * material.Ka;
+  vec3 ambient;
+  if (materialType == 0) {
+    ambient = light.color * material.Ka;
+  } else if (materialType == 1) {
+    ambient = light.color * materialTex.Ka;
+  }
 
   vec3 norm = normalize(Normal);
   vec3 lightDir = normalize(light.position - FragPos);
   float diff = max(dot(norm, lightDir), 0.0);
-  vec3 diffuse = light.color * (diff * material.Kd);
+  vec3 kd; 
+  if (materialType == 0) {
+    kd = material.Kd;
+  } else if (materialType == 1) {
+    kd = texture(materialTex.diffuse, TexCoord).xyz;
+  }
+  vec3 diffuse = light.color * (diff * kd);
 
   vec3 viewDir = normalize(viewPos - FragPos);
   vec3 reflectDir = reflect(-lightDir, norm);
-  float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
-  vec3 specular = spec * material.Ks * light.color;
+  float spec;
+  vec3 specular;
+  if (materialType == 0) {
+    spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
+    specular = spec * material.Ks * light.color;
+  } else if (materialType == 1) {
+    spec = pow(max(dot(viewDir, reflectDir), 0.0), materialTex.shininess);
+    specular = spec * texture(materialTex.specular, TexCoord).xyz * light.color;
+  }
 
   float shadow = calculateShadow(FragPosLightSpace, norm, lightDir);
 

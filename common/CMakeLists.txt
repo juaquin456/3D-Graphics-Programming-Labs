@@ -18,6 +18,7 @@ add_library(common STATIC
     src/RenderObject.cpp
     src/MeshAsset.cpp
     src/ShadowMap.cpp
+        src/Texture.cpp
 )
 
 target_include_directories(common PUBLIC
@@ -27,6 +28,7 @@ target_include_directories(common PUBLIC
 
 target_link_libraries(common PUBLIC
     happly
+        stb
     glm::glm
         glad
 )

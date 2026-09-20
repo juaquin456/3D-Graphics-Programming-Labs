@@ -13,6 +13,9 @@ target_include_directories(glad PUBLIC glad/include)
 add_library(happly INTERFACE)
 target_include_directories(happly INTERFACE happly/)
 
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE stb/)
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/glfw/lib/libglfw3.a")
     add_library(glfw STATIC IMPORTED GLOBAL)
     set_target_properties(glfw PROPERTIES
