@@ -21,6 +21,15 @@ struct Texture {
 
    void init(int width, int height, const unsigned char* data, GLenum format);
    Texture& operator=(Texture const& texture) = default;
+   void bind(unsigned int unit = 0) const {
+      glActiveTexture(GL_TEXTURE0 + unit);
+      glBindTexture(GL_TEXTURE_2D, textureID);
+   }
+
+   void unbind(unsigned int unit = 0) const {
+      glActiveTexture(GL_TEXTURE0 + unit);
+      glBindTexture(GL_TEXTURE_2D, 0);
+   }
 };
 
 #endif //PLACING_CAMERA_TEXTURE_H

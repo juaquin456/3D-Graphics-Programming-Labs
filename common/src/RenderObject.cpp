@@ -31,24 +31,7 @@ void RenderObject::draw(const Shader& shader) const {
     glm::mat4 model = getModelMatrix();
     glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
 
-    if (materialTex.diffuse) {
-        shader.setInt("materialType", 1);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, materialTex.diffuse->textureID);
-        glUniform1i(glGetUniformLocation(shader.ID, "materialTex.diffuse"), 0);
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, materialTex.specular->textureID);
-        glUniform1i(glGetUniformLocation(shader.ID, "materialTex.specular"), 2);
-        //shader.setVec3("materialTex.Ks", materialTex.Ks);
-        shader.setVec3("materialTex.Ka", materialTex.Ka);
-        shader.setFloat("materialTex.shininess", materialTex.shininess);
-    } else {
-        shader.setInt("materialType", 0);
-        glUniform3fv(glGetUniformLocation(shader.ID, "material.Kd"), 1, glm::value_ptr(material.Kd));
-        glUniform3fv(glGetUniformLocation(shader.ID, "material.Ks"), 1, glm::value_ptr(material.Ks));
-        glUniform3fv(glGetUniformLocation(shader.ID, "material.Ka"), 1, glm::value_ptr(material.Ka));
-        shader.setFloat("material.shininess", material.shininess);
-    }
+    if (material) material->apply(shader);
 
     meshAsset->draw();
 }
@@ -72,6 +55,8 @@ glm::mat4 DirectionalLight::getLightSpaceMatrix(float orthoSize, float nearPlane
 
 void DirectionalLight::bind(const Shader &shader) const {
     shader.setVec3("light.position", position);
-    shader.setVec3("light.color", color);
+    shader.setVec3("light.ambient", ambient);
+    shader.setVec3("light.diffuse", diffuse);
+    shader.setVec3("light.specular", specular);
     shader.setMat4("lightSpaceMatrix", getLightSpaceMatrix());
 }

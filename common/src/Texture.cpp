@@ -20,6 +20,8 @@ Texture::Texture(const std::string& filename){
         format = GL_RGB;
     else if (channels== 4)
         format = GL_RGBA;
+    std::cout << "Loading texture " << filename << std::endl;
+    std::cout << "width: " << width << " height: " << height << " channels: " << channels << std::endl;
     init(width, height, data, format);
     stbi_image_free(data);
 }
@@ -31,7 +33,10 @@ void Texture::init(int width, int height, const unsigned char* data, GLenum form
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
+    if (format == GL_RED) {
+        GLint swizzleMask[] = { GL_RED, GL_RED, GL_RED, GL_ONE };
+        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+    }
     glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
 }

@@ -27,6 +27,7 @@ MeshData MeshData::readPly(const std::string& filename) {
     }
 
     m.recompute_normals();
+    m.recompute_tangents();
     return m;
 }
 
@@ -102,6 +103,50 @@ void MeshData::recompute_normals() {
         }
     }
 }
+void MeshData::recompute_tangents() {
+    tangents.assign(vertices.size(), glm::vec3(0.0f));
+
+    if (uvs.empty() || indices.empty()) return;
+
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        int idx0 = indices[i];
+        int idx1 = indices[i + 1];
+        int idx2 = indices[i + 2];
+
+        const glm::vec3& v0 = vertices[idx0];
+        const glm::vec3& v1 = vertices[idx1];
+        const glm::vec3& v2 = vertices[idx2];
+
+        const glm::vec2& uv0 = uvs[idx0];
+        const glm::vec2& uv1 = uvs[idx1];
+        const glm::vec2& uv2 = uvs[idx2];
+
+        glm::vec3 edge1 = v1 - v0;
+        glm::vec3 edge2 = v2 - v0;
+
+        glm::vec2 deltaUV1 = uv1 - uv0;
+        glm::vec2 deltaUV2 = uv2 - uv0;
+
+        float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y + 1e-6f);
+
+        glm::vec3 tangent;
+        tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+        tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+        tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+
+        tangents[idx0] += tangent;
+        tangents[idx1] += tangent;
+        tangents[idx2] += tangent;
+    }
+
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        const glm::vec3& n = normals[i];
+        const glm::vec3& t = tangents[i];
+
+        glm::vec3 orthogonalTangent = glm::normalize(t - n * glm::dot(n, t));
+        tangents[i] = orthogonalTangent;
+    }
+}
 
 MeshData MeshData::NewSphere(float radius, int slices, int stacks) {
     MeshData m;
@@ -168,6 +213,7 @@ MeshData MeshData::NewSphere(float radius, int slices, int stacks) {
     }
 
     m.recompute_normals();
+    m.recompute_tangents();
     return m;
 }
 
@@ -231,5 +277,6 @@ MeshData MeshData::NewCube(float size) {
             // Left face (-X)
             {0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}
     };
+    m.recompute_tangents();
     return m;
 }

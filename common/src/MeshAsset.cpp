@@ -63,6 +63,13 @@ void MeshAsset::setupGPU(const MeshData &data) {
         glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
         glEnableVertexAttribArray(2);
     }
+    if (!data.tangents.empty()) {
+        glGenBuffers(1, &m_VBO_Tang);
+        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Tang);
+        glBufferData(GL_ARRAY_BUFFER, data.tangents.size() * sizeof(glm::vec3), data.tangents.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+        glEnableVertexAttribArray(3);
+    }
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.indices.size() * sizeof(int), data.indices.data(), GL_STATIC_DRAW);

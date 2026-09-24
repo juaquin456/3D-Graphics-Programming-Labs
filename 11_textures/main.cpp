@@ -23,18 +23,19 @@ int SCR_WIDTH = 1280;
 int SCR_HEIGHT = 720;
 
 Camera cam;
+bool useShadowMap = true;
 bool isDragging = false;
 double lastMouseX = 0, lastMouseY = 0;
 
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
     glViewport(0, 0, width, height);
     SCR_WIDTH = width;
     SCR_HEIGHT = height;
     cam.aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
 }
 
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+void scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
     glm::vec3 viewDir = cam.position - cam.target;
     float currentDist = glm::length(viewDir);
 
@@ -47,7 +48,7 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     }
 }
 
-void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+void mouse_button_callback(GLFWwindow *window, int button, int action, int mods) {
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         if (action == GLFW_PRESS) {
             isDragging = true;
@@ -58,7 +59,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
     }
 }
 
-void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
+void cursor_position_callback(GLFWwindow *window, double xpos, double ypos) {
     if (isDragging) {
         float deltaX = static_cast<float>(xpos - lastMouseX);
         float deltaY = static_cast<float>(ypos - lastMouseY);
@@ -70,11 +71,11 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
     }
 }
 
-void process_input(GLFWwindow* window) {
+void process_input(GLFWwindow *window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
-
 }
+
 int main() {
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -85,7 +86,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "09_ilumination - Ilumination", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "09_ilumination - Ilumination", NULL, NULL);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -93,7 +94,7 @@ int main() {
     }
     glfwMakeContextCurrent(window);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+    if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
@@ -107,29 +108,28 @@ int main() {
 
 
     Shader depthShader("../../shaders/shadow_depth.vert", "../../shaders/shadow_depth.frag");
-    Shader sceneShader("../../shaders/texture.vert", "../../shaders/texture.frag");
+    Shader solidShader("../../shaders/texture.vert", "../../shaders/phong_solid.frag");
+    Shader texturedShader("../../shaders/texture.vert", "../../shaders/phong_textured.frag");
 
     DirectionalLight light;
 
     ShadowMap shadowMap;
     shadowMap.init(2048, 2048);
 
+    auto floorMat = std::make_shared<TexturedMaterial>(std::make_shared<Texture>("../../textures/rock_color.jpg"),
+                                                       std::make_shared<Texture>(
+                                                           "../../textures/rock_specular.jpg"),
+                                                           std::make_shared<Texture>("../../textures/rock_normal.jpg"));
     auto planeAsset = std::make_shared<MeshAsset>(MeshData::NewCube(1));
-    RenderObject floor(planeAsset);
-    floor.scale = glm::vec3(10, 0.1, 10);
+    RenderObject floor(planeAsset, floorMat);
+    floor.scale = glm::vec3(10, 0.01, 10);
     floor.position = glm::vec3(0.0f, -0.5, 0.0f);
-    floor.materialTex.diffuse = std::make_shared<Texture>("../../textures/container2.png");
-    floor.materialTex.specular = std::make_shared<Texture>("../../textures/container2_specular.png");
-    // floor.materialTex.Ks = Material::Chalk().Ks;
-    floor.materialTex.Ka = Material::Chalk().Ka;
-    floor.materialTex.shininess = Material::Chalk().shininess;
 
 
     auto bunnyAsset = std::make_shared<MeshAsset>(MeshData::readPly("../../models/bunny.ply"));
-    RenderObject bunny(bunnyAsset);
+    RenderObject bunny(bunnyAsset, PhongMaterial::Gold());
     bunny.position = glm::vec3(0.0f, 0.5, 0.0f);
-    bunny.material = Material::Gold();
-    float lastFrameTime= glfwGetTime();
+    float lastFrameTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
         process_input(window);
 
@@ -138,7 +138,7 @@ int main() {
         lastFrameTime = currentFrameTime;
 
         bunny.rotateAxis(30 * deltaTime, glm::vec3(0.0f, 1.0f, 0.0f));
-        light.position.x = glm::sin(currentFrameTime)*5;
+        light.position.x = glm::sin(currentFrameTime) * 5;
 
         shadowMap.bindForWriting();
         depthShader.use();
@@ -152,15 +152,22 @@ int main() {
         glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        sceneShader.use();
         glCullFace(GL_BACK);
-        cam.bind(sceneShader);
-        light.bind(sceneShader);
-        shadowMap.bindTexture(1);
-        sceneShader.setInt("shadowMap", 1);
+        shadowMap.bindTexture(3);
 
-        floor.draw(sceneShader);
-        bunny.draw(sceneShader);
+        solidShader.use();
+        solidShader.setBool("useShadows", useShadowMap);
+        cam.bind(solidShader);
+        light.bind(solidShader);
+        solidShader.setInt("shadowMap", 3);
+        bunny.draw(solidShader);
+
+        texturedShader.use();
+        texturedShader.setBool("useShadows", useShadowMap);
+        cam.bind(texturedShader);
+        light.bind(texturedShader);
+        texturedShader.setInt("shadowMap", 3);
+        floor.draw(texturedShader);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

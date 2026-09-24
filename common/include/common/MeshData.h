@@ -11,10 +11,12 @@ struct MeshData {
     std::vector<int> indices;    // 3 * faces
     std::vector<glm::vec2> uvs;
     std::vector<glm::vec3> normals;
+    std::vector<glm::vec3> tangents;
 
     void save(const std::string& filename) const;
     std::pair<glm::vec3, glm::vec3> bounding_box() const;
     void recompute_normals();
+    void recompute_tangents();
 
     static MeshData readPly(const std::string& filename);
     static MeshData NewSphere(float radius, int slices, int stacks);
