@@ -1,0 +1,250 @@
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
+#include "common/Scene.h"
+#include "common/MeshData.h"
+
+#include <filesystem>
+#include <iostream>
+#include <unordered_map>
+
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+
+Scene Scene::loadOBJ(const std::string& filepath) {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    std::string baseDir = std::filesystem::path(filepath).parent_path().string();
+    if (!baseDir.empty()) baseDir += "/";
+
+    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+                                filepath.c_str(), baseDir.c_str(),
+                                /*triangulate=*/true);
+
+    if (!warn.empty()) std::cout << "[TinyOBJ] Warning: " << warn << std::endl;
+    if (!err.empty())  std::cerr << "[TinyOBJ] Error: "   << err  << std::endl;
+    if (!ret) {
+        std::cerr << "[Scene] Failed to load OBJ: " << filepath << std::endl;
+        return {};
+    }
+
+    std::cout << "[Scene] Loaded " << filepath
+              << " — " << shapes.size()    << " shape(s), "
+              << materials.size() << " material(s), "
+              << attrib.vertices.size() / 3 << " vertex position(s)" << std::endl;
+
+    Scene scene;
+
+    // ── 1. Texture cache (avoid reloading the same image) ────────────────
+    std::unordered_map<std::string, Texture::Ptr> textureCache;
+    auto loadTexture = [&](const std::string& texName) -> Texture::Ptr {
+        if (texName.empty()) return nullptr;
+        std::string fullPath = baseDir + texName;
+        auto it = textureCache.find(fullPath);
+        if (it != textureCache.end()) return it->second;
+        auto tex = std::make_shared<Texture>(fullPath);
+        textureCache[fullPath] = tex;
+        scene.m_textures.push_back(tex);
+        return tex;
+    };
+
+    std::vector<IMaterial::Ptr> matPtrs;
+    for (const auto& mat : materials) {
+        bool hasTextures = !mat.diffuse_texname.empty()  ||
+                           !mat.specular_texname.empty() ||
+                           !mat.bump_texname.empty();
+
+        if (hasTextures) {
+            auto diffTex = loadTexture(mat.diffuse_texname);
+            auto specTex = loadTexture(mat.specular_texname);
+            auto normTex = loadTexture(mat.bump_texname);
+
+            auto texMat = std::make_shared<TexturedMaterial>(diffTex, specTex, normTex);
+            texMat->shininess = mat.shininess > 0.0f ? mat.shininess : 32.0f;
+            matPtrs.push_back(texMat);
+            scene.m_materials.push_back(texMat);
+        } else {
+            auto phongMat = std::make_shared<PhongMaterial>(
+                glm::vec3(mat.ambient[0],  mat.ambient[1],  mat.ambient[2]),
+                glm::vec3(mat.diffuse[0],  mat.diffuse[1],  mat.diffuse[2]),
+                glm::vec3(mat.specular[0], mat.specular[1], mat.specular[2]),
+                mat.shininess > 0.0f ? mat.shininess : 32.0f
+            );
+            matPtrs.push_back(phongMat);
+            scene.m_materials.push_back(phongMat);
+        }
+    }
+
+    for (const auto& shape : shapes) {
+        const size_t numFaces = shape.mesh.num_face_vertices.size();
+
+        std::vector<size_t> faceOffsets(numFaces);
+        {
+            size_t off = 0;
+            for (size_t f = 0; f < numFaces; ++f) {
+                faceOffsets[f] = off;
+                off += shape.mesh.num_face_vertices[f];
+            }
+        }
+
+        std::unordered_map<int, std::vector<size_t>> matGroups;
+        for (size_t f = 0; f < numFaces; ++f) {
+            int matId = shape.mesh.material_ids.empty() ? -1
+                                                        : shape.mesh.material_ids[f];
+            matGroups[matId].push_back(f);
+        }
+
+        for (const auto& [matId, faces] : matGroups) {
+            MeshData meshData;
+            std::unordered_map<std::string, int> uniqueVerts;
+
+            for (size_t f : faces) {
+                const int fv = shape.mesh.num_face_vertices[f];
+                const size_t base = faceOffsets[f];
+
+                for (int v = 0; v < fv; ++v) {
+                    const tinyobj::index_t& idx = shape.mesh.indices[base + v];
+
+                    std::string key = std::to_string(idx.vertex_index)   + "/" +
+                                      std::to_string(idx.texcoord_index) + "/" +
+                                      std::to_string(idx.normal_index);
+
+                    auto it = uniqueVerts.find(key);
+                    if (it != uniqueVerts.end()) {
+                        meshData.indices.push_back(it->second);
+                    } else {
+                        int newIdx = static_cast<int>(meshData.vertices.size());
+
+                        meshData.vertices.emplace_back(
+                            attrib.vertices[3 * idx.vertex_index + 0],
+                            attrib.vertices[3 * idx.vertex_index + 1],
+                            attrib.vertices[3 * idx.vertex_index + 2]
+                        );
+
+                        if (idx.texcoord_index >= 0 &&
+                            static_cast<size_t>(2 * idx.texcoord_index + 1) < attrib.texcoords.size()) {
+                            meshData.uvs.emplace_back(
+                                attrib.texcoords[2 * idx.texcoord_index + 0],
+                                attrib.texcoords[2 * idx.texcoord_index + 1]
+                            );
+                        }
+
+                        // Normal
+                        if (idx.normal_index >= 0 &&
+                            static_cast<size_t>(3 * idx.normal_index + 2) < attrib.normals.size()) {
+                            meshData.normals.emplace_back(
+                                attrib.normals[3 * idx.normal_index + 0],
+                                attrib.normals[3 * idx.normal_index + 1],
+                                attrib.normals[3 * idx.normal_index + 2]
+                            );
+                        }
+
+                        uniqueVerts[key] = newIdx;
+                        meshData.indices.push_back(newIdx);
+                    }
+                }
+            }
+
+            if (!meshData.uvs.empty() && meshData.uvs.size() != meshData.vertices.size()) {
+                meshData.uvs.resize(meshData.vertices.size(), glm::vec2(0.0f));
+            }
+
+            if (meshData.normals.size() != meshData.vertices.size()) {
+                meshData.recompute_normals();
+            }
+
+            meshData.recompute_tangents();
+
+            auto meshAsset = std::make_shared<MeshAsset>(meshData);
+            scene.m_meshAssets.push_back(meshAsset);
+
+            IMaterial::Ptr mat = nullptr;
+            if (matId >= 0 && matId < static_cast<int>(matPtrs.size())) {
+                mat = matPtrs[matId];
+            }
+
+            scene.objects.emplace_back(meshAsset, mat);
+        }
+    }
+
+    std::cout << "[Scene] Created " << scene.objects.size() << " render object(s)" << std::endl;
+    return scene;
+}
+
+
+glm::mat4 Scene::getModelMatrix() const {
+    glm::mat4 model(1.0f);
+    model = glm::translate(model, position);
+    model = glm::scale(model, scale);
+    model = model * glm::mat4_cast(rotation);
+    return model;
+}
+
+void Scene::rotateAxis(float angleDegrees, const glm::vec3& axis) {
+    glm::quat delta = glm::angleAxis(glm::radians(angleDegrees), glm::normalize(axis));
+    rotation = glm::normalize(delta * rotation);
+}
+
+void Scene::setRotationEuler(float pitchDeg, float yawDeg, float rollDeg) {
+    rotation = glm::quat(glm::vec3(
+        glm::radians(pitchDeg),
+        glm::radians(yawDeg),
+        glm::radians(rollDeg)
+    ));
+}
+
+
+void Scene::draw(const Shader& solidShader, const Shader& texturedShader) const {
+    glm::mat4 sceneModel = getModelMatrix();
+
+    solidShader.use();
+    for (const auto& obj : objects) {
+        if (!obj.meshAsset) continue;
+        if (dynamic_cast<TexturedMaterial*>(obj.material.get())) continue;
+
+        glm::mat4 model = sceneModel * obj.getModelMatrix();
+        solidShader.setMat4("model", model);
+        if (obj.material) obj.material->apply(solidShader);
+        obj.meshAsset->draw();
+    }
+
+    texturedShader.use();
+    for (const auto& obj : objects) {
+        if (!obj.meshAsset) continue;
+        if (!dynamic_cast<TexturedMaterial*>(obj.material.get())) continue;
+
+        glm::mat4 model = sceneModel * obj.getModelMatrix();
+        texturedShader.setMat4("model", model);
+        obj.material->apply(texturedShader);
+        obj.meshAsset->draw();
+    }
+}
+
+void Scene::draw(const Shader& shader) const {
+    glm::mat4 sceneModel = getModelMatrix();
+
+    for (const auto& obj : objects) {
+        if (!obj.meshAsset) continue;
+
+        glm::mat4 model = sceneModel * obj.getModelMatrix();
+        shader.setMat4("model", model);
+
+        if (obj.material) obj.material->apply(shader);
+        obj.meshAsset->draw();
+    }
+}
+
+void Scene::drawGeometry(const Shader& shader) const {
+    glm::mat4 sceneModel = getModelMatrix();
+
+    for (const auto& obj : objects) {
+        if (!obj.meshAsset) continue;
+
+        glm::mat4 model = sceneModel * obj.getModelMatrix();
+        shader.setMat4("model", model);
+        obj.meshAsset->draw();
+    }
+}

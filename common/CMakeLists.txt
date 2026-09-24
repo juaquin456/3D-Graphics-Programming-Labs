@@ -19,6 +19,7 @@ add_library(common STATIC
     src/MeshAsset.cpp
     src/ShadowMap.cpp
         src/Texture.cpp
+        src/Scene.cpp
 )
 
 target_include_directories(common PUBLIC
@@ -31,4 +32,5 @@ target_link_libraries(common PUBLIC
         stb
     glm::glm
         glad
+        tinyobjloader
 )

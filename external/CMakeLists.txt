@@ -16,6 +16,18 @@ target_include_directories(happly INTERFACE happly/)
 add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE stb/)
 
+FetchContent_Declare(
+        tinyobjloader_src
+        GIT_REPOSITORY https://github.com/tinyobjloader/tinyobjloader.git
+        GIT_TAG        v2.0.0rc13
+)
+FetchContent_GetProperties(tinyobjloader_src)
+if(NOT tinyobjloader_src_POPULATED)
+    FetchContent_Populate(tinyobjloader_src)
+endif()
+add_library(tinyobjloader INTERFACE)
+target_include_directories(tinyobjloader INTERFACE "${tinyobjloader_src_SOURCE_DIR}")
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/glfw/lib/libglfw3.a")
     add_library(glfw STATIC IMPORTED GLOBAL)
     set_target_properties(glfw PROPERTIES
