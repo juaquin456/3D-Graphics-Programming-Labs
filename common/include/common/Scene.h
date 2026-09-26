@@ -21,9 +21,10 @@ public:
 
     [[nodiscard]] glm::mat4 getModelMatrix() const;
 
-    void draw(const Shader& solidShader, const Shader& texturedShader) const;
 
     void draw(const Shader& shader) const;
+    void drawSolid(const Shader& shader) const;
+    void drawTextured(const Shader& shader) const;
 
     void drawGeometry(const Shader& shader) const;
 
@@ -32,8 +33,6 @@ public:
 
 private:
     std::vector<MeshAsset::Ptr> m_meshAssets;
-    std::vector<Texture::Ptr>   m_textures;
-    std::vector<IMaterial::Ptr> m_materials;
 };
 
 #endif // COMMON_SCENE_H

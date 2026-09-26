@@ -10,12 +10,13 @@
 MeshAsset::MeshAsset(const std::string &filename): MeshAsset(MeshData::readPly(filename)) {}
 
 MeshAsset::MeshAsset(const MeshData &data) {
-    auto [min_pt, max_pt] = data.bounding_box();
+    /*auto [min_pt, max_pt] = data.bounding_box();
     localCenter = (min_pt + max_pt) * 0.5f;
 
     glm::vec3 extent = max_pt - min_pt;
     float max_extent = std::max({extent.x, extent.y, extent.z});
     autoScaleFactor = (max_extent > 0.0f) ? (1.0f / max_extent) : 1.0f;
+    */
     setupGPU(data);
 }
 

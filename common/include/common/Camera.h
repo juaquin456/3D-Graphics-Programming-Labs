@@ -27,6 +27,30 @@ public:
     [[nodiscard]] glm::mat4 getProjectionMatrix() const;
     void rotateOrbit(float deltaX, float deltaY, float sensitivity);
     void bind(const Shader& shader) const;
+
+    void moveForward() {
+        glm::vec3 delta = {0, 0, -0.01};
+        position += delta;
+        target += delta;
+    }
+
+
+    void moveBackward() {
+        glm::vec3 delta = {0, 0, 0.01};
+        position += delta;
+        target += delta;
+    }
+
+    void moveLeft() {
+        glm::vec3 delta = {-0.01, 0, 0};
+        position += delta;
+        target += delta;
+    }
+    void moveRight() {
+        glm::vec3 delta = {0.01, 0, 0};
+        position += delta;
+        target += delta;
+    }
 };
 
 #endif //ANIMATION_CAMERA_H

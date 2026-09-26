@@ -10,7 +10,17 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
-
+std::string replaceCharacters(const std::string& s, char c1, char c2)
+{
+    std::string tmp(s);
+    for (char& ch : tmp) {
+        if (ch == c1)
+            ch = c2;
+        else if (ch == c2)
+            ch = c1;
+    }
+    return tmp;
+}
 Scene Scene::loadOBJ(const std::string& filepath) {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -38,7 +48,6 @@ Scene Scene::loadOBJ(const std::string& filepath) {
 
     Scene scene;
 
-    // ── 1. Texture cache (avoid reloading the same image) ────────────────
     std::unordered_map<std::string, Texture::Ptr> textureCache;
     auto loadTexture = [&](const std::string& texName) -> Texture::Ptr {
         if (texName.empty()) return nullptr;
@@ -47,10 +56,10 @@ Scene Scene::loadOBJ(const std::string& filepath) {
         if (it != textureCache.end()) return it->second;
         auto tex = std::make_shared<Texture>(fullPath);
         textureCache[fullPath] = tex;
-        scene.m_textures.push_back(tex);
         return tex;
     };
 
+    auto defaultMaterial = PhongMaterial::WhitePlastic();
     std::vector<IMaterial::Ptr> matPtrs;
     for (const auto& mat : materials) {
         bool hasTextures = !mat.diffuse_texname.empty()  ||
@@ -58,14 +67,13 @@ Scene Scene::loadOBJ(const std::string& filepath) {
                            !mat.bump_texname.empty();
 
         if (hasTextures) {
-            auto diffTex = loadTexture(mat.diffuse_texname);
-            auto specTex = loadTexture(mat.specular_texname);
-            auto normTex = loadTexture(mat.bump_texname);
+            auto diffTex = loadTexture(replaceCharacters(mat.diffuse_texname, '\\', '/'));
+            auto specTex = loadTexture(replaceCharacters(mat.specular_texname, '\\', '/'));
+            auto normTex = loadTexture(replaceCharacters(mat.bump_texname, '\\', '/'));
 
             auto texMat = std::make_shared<TexturedMaterial>(diffTex, specTex, normTex);
             texMat->shininess = mat.shininess > 0.0f ? mat.shininess : 32.0f;
             matPtrs.push_back(texMat);
-            scene.m_materials.push_back(texMat);
         } else {
             auto phongMat = std::make_shared<PhongMaterial>(
                 glm::vec3(mat.ambient[0],  mat.ambient[1],  mat.ambient[2]),
@@ -73,8 +81,8 @@ Scene Scene::loadOBJ(const std::string& filepath) {
                 glm::vec3(mat.specular[0], mat.specular[1], mat.specular[2]),
                 mat.shininess > 0.0f ? mat.shininess : 32.0f
             );
-            matPtrs.push_back(phongMat);
-            scene.m_materials.push_back(phongMat);
+            std::cout << "loading solid" << std::endl;
+            matPtrs.push_back(defaultMaterial);
         }
     }
 
@@ -161,11 +169,10 @@ Scene Scene::loadOBJ(const std::string& filepath) {
             auto meshAsset = std::make_shared<MeshAsset>(meshData);
             scene.m_meshAssets.push_back(meshAsset);
 
-            IMaterial::Ptr mat = nullptr;
+            IMaterial::Ptr mat = PhongMaterial::WhitePlastic();
             if (matId >= 0 && matId < static_cast<int>(matPtrs.size())) {
                 mat = matPtrs[matId];
             }
-
             scene.objects.emplace_back(meshAsset, mat);
         }
     }
@@ -196,30 +203,21 @@ void Scene::setRotationEuler(float pitchDeg, float yawDeg, float rollDeg) {
     ));
 }
 
-
-void Scene::draw(const Shader& solidShader, const Shader& texturedShader) const {
-    glm::mat4 sceneModel = getModelMatrix();
-
-    solidShader.use();
+void Scene::drawSolid(const Shader& solidShader) const {
     for (const auto& obj : objects) {
         if (!obj.meshAsset) continue;
-        if (dynamic_cast<TexturedMaterial*>(obj.material.get())) continue;
-
-        glm::mat4 model = sceneModel * obj.getModelMatrix();
-        solidShader.setMat4("model", model);
-        if (obj.material) obj.material->apply(solidShader);
-        obj.meshAsset->draw();
+        if (!dynamic_cast<PhongMaterial*>(obj.material.get())) continue;
+        std::cout << "drawsolid" << std::endl;
+        obj.draw(solidShader);
     }
+}
 
-    texturedShader.use();
+void Scene::drawTextured(const Shader& texturedShader) const {
     for (const auto& obj : objects) {
         if (!obj.meshAsset) continue;
         if (!dynamic_cast<TexturedMaterial*>(obj.material.get())) continue;
 
-        glm::mat4 model = sceneModel * obj.getModelMatrix();
-        texturedShader.setMat4("model", model);
-        obj.material->apply(texturedShader);
-        obj.meshAsset->draw();
+        obj.draw(texturedShader);
     }
 }
 
@@ -238,13 +236,7 @@ void Scene::draw(const Shader& shader) const {
 }
 
 void Scene::drawGeometry(const Shader& shader) const {
-    glm::mat4 sceneModel = getModelMatrix();
-
     for (const auto& obj : objects) {
-        if (!obj.meshAsset) continue;
-
-        glm::mat4 model = sceneModel * obj.getModelMatrix();
-        shader.setMat4("model", model);
-        obj.meshAsset->draw();
+        obj.drawGeometry(shader);
     }
 }

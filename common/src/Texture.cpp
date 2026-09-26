@@ -10,7 +10,7 @@ Texture::Texture(const std::string& filename){
     int width, height, channels;
     unsigned char* data = stbi_load(filename.c_str(), &width, &height, &channels, 0);
     if (data == nullptr) {
-        std::cout << "Error loading texture" << std::endl;
+        std::cout << "Error loading texture " << filename << std::endl;
         return;
     }
     GLenum format;
