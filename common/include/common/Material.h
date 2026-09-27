@@ -23,16 +23,18 @@ public:
     glm::vec3 Ka{0.2f};
     glm::vec3 Kd{0.8f, 0.3f, 0.2f};
     glm::vec3 Ks{1.0f};
+    glm::vec3 Ke{0};
     float shininess{32.0f};
 
     PhongMaterial() = default;
-    PhongMaterial(glm::vec3 ka, glm::vec3 kd, glm::vec3 ks, float shiny)
-        : Ka(ka), Kd(kd), Ks(ks), shininess(shiny) {}
+    PhongMaterial(glm::vec3 ka, glm::vec3 kd, glm::vec3 ks, float shiny, glm::vec3 ke = glm::vec3(0.0f))
+            : Ka(ka), Kd(kd), Ks(ks), Ke(ke), shininess(shiny) {}
 
     void apply(const Shader& shader) const override {
         shader.setVec3("material.Ka", Ka);
         shader.setVec3("material.Kd", Kd);
         shader.setVec3("material.Ks", Ks);
+        shader.setVec3("material.Ke", Ks);
         shader.setFloat("material.shininess", shininess);
     }
 
@@ -67,10 +69,12 @@ public:
     Texture::Ptr diffuseMap;
     Texture::Ptr specularMap;
     Texture::Ptr normalMap;
+    glm::vec3 Ke{0};
     float shininess{32.0f};
 
     void apply(const Shader& shader) const override {
         shader.setFloat("material.shininess", shininess);
+        shader.setVec3("material.Ke", Ke);
 
         if (diffuseMap) {
             diffuseMap->bind(0);
@@ -89,6 +93,11 @@ public:
         }
     }
 
-    TexturedMaterial(const std::shared_ptr<Texture> & diffuse, const std::shared_ptr<Texture> &specular, Texture::Ptr norm = nullptr): diffuseMap(diffuse), specularMap(specular), normalMap(std::move(norm)) {}
+    TexturedMaterial(const std::shared_ptr<Texture>& diffuse,
+                      const std::shared_ptr<Texture>& specular,
+                      Texture::Ptr norm = nullptr,
+                      float shiny = 32.0f,
+                      glm::vec3 ke = glm::vec3(0.0f))
+         : diffuseMap(diffuse), specularMap(specular), normalMap(std::move(norm)), Ke(ke), shininess(shiny) {}
 };
 #endif //TEXTURES_MATERIAL_H

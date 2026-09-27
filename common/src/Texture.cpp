@@ -40,3 +40,27 @@ void Texture::init(int width, int height, const unsigned char* data, GLenum form
     glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
 }
+
+Texture::Ptr Texture::White() {
+    static Texture::Ptr whiteTex = nullptr;
+
+    if (!whiteTex) {
+        whiteTex = std::make_shared<Texture>();
+        unsigned char whitePixel[4] = { 255, 255, 255, 255 };
+        whiteTex->init(1, 1, whitePixel, GL_RGBA);
+    }
+
+    return whiteTex;
+}
+
+Texture::Ptr Texture::DefaultNormal() {
+    static Texture::Ptr normalTex = nullptr;
+
+    if (!normalTex) {
+        normalTex = std::make_shared<Texture>();
+        unsigned char normalPixel[3] = { 128, 128, 255 };
+        normalTex->init(1, 1, normalPixel, GL_RGB);
+    }
+
+    return normalTex;
+}

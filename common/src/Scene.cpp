@@ -62,27 +62,45 @@ Scene Scene::loadOBJ(const std::string& filepath) {
     auto defaultMaterial = PhongMaterial::WhitePlastic();
     std::vector<IMaterial::Ptr> matPtrs;
     for (const auto& mat : materials) {
+        glm::vec3 ke(mat.emission[0], mat.emission[1], mat.emission[2]);
         bool hasTextures = !mat.diffuse_texname.empty()  ||
                            !mat.specular_texname.empty() ||
                            !mat.bump_texname.empty();
-
+        float shiny = mat.shininess >= 1.0f ? mat.shininess : 32.0f;
         if (hasTextures) {
-            auto diffTex = loadTexture(replaceCharacters(mat.diffuse_texname, '\\', '/'));
-            auto specTex = loadTexture(replaceCharacters(mat.specular_texname, '\\', '/'));
-            auto normTex = loadTexture(replaceCharacters(mat.bump_texname, '\\', '/'));
+            auto diffTex = !mat.diffuse_texname.empty()
+                ? loadTexture(replaceCharacters(mat.diffuse_texname, '\\', '/'))
+                : Texture::White();
 
-            auto texMat = std::make_shared<TexturedMaterial>(diffTex, specTex, normTex);
-            texMat->shininess = mat.shininess > 0.0f ? mat.shininess : 32.0f;
+            auto specTex = !mat.specular_texname.empty()
+                ? loadTexture(replaceCharacters(mat.specular_texname, '\\', '/'))
+                : Texture::White();
+
+            auto normTex = !mat.bump_texname.empty()
+                ? loadTexture(replaceCharacters(mat.bump_texname, '\\', '/'))
+                : nullptr;
+            auto texMat = std::make_shared<TexturedMaterial>(diffTex, specTex, normTex, shiny, ke);
             matPtrs.push_back(texMat);
         } else {
             auto phongMat = std::make_shared<PhongMaterial>(
                 glm::vec3(mat.ambient[0],  mat.ambient[1],  mat.ambient[2]),
                 glm::vec3(mat.diffuse[0],  mat.diffuse[1],  mat.diffuse[2]),
                 glm::vec3(mat.specular[0], mat.specular[1], mat.specular[2]),
-                mat.shininess > 0.0f ? mat.shininess : 32.0f
+                shiny,
+                ke
             );
-            std::cout << "loading solid" << std::endl;
-            matPtrs.push_back(defaultMaterial);
+            std::cout << "Ka ";
+            for (float i : mat.ambient) std::cout << i << " ";
+            std::cout << std::endl;
+
+            std::cout << "Kd ";
+            for (float i : mat.diffuse) std::cout << i << " ";
+            std::cout << std::endl;
+            std::cout << "Ks ";
+            for (float i : mat.specular) std::cout << i << " ";
+            std::cout << std::endl;
+            std::cout << "Shininess " << mat.shininess << std::endl;
+            matPtrs.push_back(phongMat);
         }
     }
 
@@ -173,6 +191,7 @@ Scene Scene::loadOBJ(const std::string& filepath) {
             if (matId >= 0 && matId < static_cast<int>(matPtrs.size())) {
                 mat = matPtrs[matId];
             }
+            assert(mat != nullptr);
             scene.objects.emplace_back(meshAsset, mat);
         }
     }
@@ -207,7 +226,7 @@ void Scene::drawSolid(const Shader& solidShader) const {
     for (const auto& obj : objects) {
         if (!obj.meshAsset) continue;
         if (!dynamic_cast<PhongMaterial*>(obj.material.get())) continue;
-        std::cout << "drawsolid" << std::endl;
+
         obj.draw(solidShader);
     }
 }

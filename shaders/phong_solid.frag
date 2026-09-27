@@ -9,6 +9,7 @@ struct Material {
     vec3 Ka;
     vec3 Kd;
     vec3 Ks;
+    vec3 Ke;
     float shininess;
 };
 
@@ -68,7 +69,7 @@ void main() {
     vec3 specular = light.specular * (spec * material.Ks);
 
     float shadow = useShadows? calculateShadow(FragPosLightSpace, norm, lightDir):0.0;
-    vec3 result = ambient + (1.0 - shadow) * (diffuse + specular);
+    vec3 result = material.Ke + ambient + (1.0 - shadow) * (diffuse + specular);
     // result = pow(result, vec3(1.0 / 2.2));
     FragColor = vec4(result, 1.0);
 }

@@ -20,6 +20,7 @@ public:
     float aspect_ratio{1280./720};
     float near_z{0.1};
     float far_z{100};
+    float speed{2.5f};
 
     Camera() = default;
     Camera(glm::vec3 eye, glm::vec3 target, float fov, float aspect);
@@ -28,26 +29,37 @@ public:
     void rotateOrbit(float deltaX, float deltaY, float sensitivity);
     void bind(const Shader& shader) const;
 
-    void moveForward() {
-        glm::vec3 delta = {0, 0, -0.01};
+    [[nodiscard]] glm::vec3 getFront() const {
+        return glm::normalize(target - position);
+    }
+
+    [[nodiscard]] glm::vec3 getRight() const {
+        return glm::normalize(glm::cross(getFront(), up));
+    }
+
+    void moveForward(float deltaTime) {
+        glm::vec3 dir = getFront();
+
+        glm::vec3 delta = dir * speed * deltaTime;
         position += delta;
         target += delta;
     }
 
-
-    void moveBackward() {
-        glm::vec3 delta = {0, 0, 0.01};
-        position += delta;
-        target += delta;
+    void moveBackward(float deltaTime) {
+        glm::vec3 dir = getFront();
+        glm::vec3 delta = dir * speed * deltaTime;
+        position -= delta;
+        target -= delta;
     }
 
-    void moveLeft() {
-        glm::vec3 delta = {-0.01, 0, 0};
-        position += delta;
-        target += delta;
+    void moveLeft(float deltaTime) {
+        glm::vec3 delta = getRight() * speed * deltaTime;
+        position -= delta;
+        target -= delta;
     }
-    void moveRight() {
-        glm::vec3 delta = {0.01, 0, 0};
+
+    void moveRight(float deltaTime) {
+        glm::vec3 delta = getRight() * speed * deltaTime;
         position += delta;
         target += delta;
     }

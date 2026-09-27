@@ -30,6 +30,9 @@ struct Texture {
       glActiveTexture(GL_TEXTURE0 + unit);
       glBindTexture(GL_TEXTURE_2D, 0);
    }
+
+   static Texture::Ptr White();
+   static Texture::Ptr DefaultNormal();
 };
 
 #endif //PLACING_CAMERA_TEXTURE_H

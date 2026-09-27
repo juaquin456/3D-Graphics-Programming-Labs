@@ -72,17 +72,17 @@ void cursor_position_callback(GLFWwindow *window, double xpos, double ypos) {
     }
 }
 
-void process_input(GLFWwindow *window) {
+void process_input(GLFWwindow *window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-       cam.moveForward();
+       cam.moveForward(deltaTime);
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        cam.moveBackward();
+        cam.moveBackward(deltaTime);
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        cam.moveLeft();
+        cam.moveLeft(deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        cam.moveRight();
+        cam.moveRight(deltaTime);
 }
 
 int main() {
@@ -121,6 +121,8 @@ int main() {
     Shader texturedShader("../../shaders/texture.vert", "../../shaders/phong_textured.frag");
 
     DirectionalLight light;
+    light.ambient = glm::vec3(0.35);
+    light.position = glm::vec3(0, 5, 0);
 
     ShadowMap shadowMap;
     shadowMap.init(2048, 2048);
@@ -130,13 +132,12 @@ int main() {
     Scene s = Scene::loadOBJ("../../scenes/fireplace_room/fireplace_room.obj");
     float lastFrameTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
-        process_input(window);
-
         float currentFrameTime = glfwGetTime();
         auto deltaTime = static_cast<float>(currentFrameTime - lastFrameTime);
         lastFrameTime = currentFrameTime;
 
-        light.position.x = glm::sin(currentFrameTime) * 5;
+        process_input(window, deltaTime);
+
 
         shadowMap.bindForWriting();
         depthShader.use();
