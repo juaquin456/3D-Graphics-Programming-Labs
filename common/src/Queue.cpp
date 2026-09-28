@@ -1,47 +1,49 @@
 #include "common/Queue.h"
-#include <algorithm>
-
-std::pair<int, int> make_edge(int u, int v) {
-    return {std::min(u, v), std::max(u, v)};
-}
 
 void QueueSystem::push_or_update(int u, int v, float err, const glm::vec4& vp) {
-    Edge edge = make_edge(u, v);
+    uint64_t edge = make_edge_key(u, v);
 
-    if (auto it = edge_to_key.find(edge); it != edge_to_key.end()) {
-        priority_queue.erase(it->second);
-    }
+    int new_version = ++edge_versions[edge];
 
-    PriorityKey new_key = {err, current_id++};
-    priority_queue[new_key] = queueData{u, v, err, vp};
-    edge_to_key[edge] = new_key;
+    pq.push(queueData{u, v, err, vp, new_version});
 }
 
 bool QueueSystem::pop(queueData& out_data) {
-    if (priority_queue.empty()) return false;
+    while (!pq.empty()) {
+        queueData top = pq.top();
+        pq.pop();
 
-    auto top_it = priority_queue.begin();
-    out_data = top_it->second;
+        uint64_t edge = make_edge_key(top.u, top.v);
+        auto it = edge_versions.find(edge);
 
-    Edge edge = make_edge(out_data.u, out_data.v);
-    edge_to_key.erase(edge);
-    priority_queue.erase(top_it);
-
-    return true;
+        if (it != edge_versions.end() && it->second == top.version) {
+            edge_versions.erase(it);
+            out_data = top;
+            return true;
+        }
+    }
+    return false;
 }
 
 void QueueSystem::erase_edge(int u, int v) {
-    Edge edge = make_edge(u, v);
-    if (auto it = edge_to_key.find(edge); it != edge_to_key.end()) {
-        priority_queue.erase(it->second);
-        edge_to_key.erase(it);
-    }
+    uint64_t edge = make_edge_key(u, v);
+    edge_versions.erase(edge);
 }
 
-bool QueueSystem::empty() const {
-    return priority_queue.empty();
+bool QueueSystem::empty() {
+    while (!pq.empty()) {
+        queueData top = pq.top();
+        uint64_t edge = make_edge_key(top.u, top.v);
+        auto it = edge_versions.find(edge);
+
+        if (it != edge_versions.end() && it->second == top.version) {
+            return false;
+        }
+        pq.pop();
+    }
+    return true;
 }
 
 int QueueSystem::size() const {
-    return static_cast<int>(priority_queue.size());
+    return static_cast<int>(edge_versions.size());
 }

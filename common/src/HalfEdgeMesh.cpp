@@ -67,11 +67,16 @@ int HalfEdgeContainer::get_he(int u, int v) const {
     return -1;
 }
 
-std::vector<int> HalfEdgeContainer::get_neighbors(int u) const {
-    std::vector<int> neighbors;
-    if (u < 0 || u >= n_vertices()) return neighbors;
+void HalfEdgeContainer::get_neighbors(
+    int u,
+    std::vector<int>& neighbors
+) const {
+    neighbors.clear();
+
+    if (u < 0 || u >= n_vertices()) return;
+
     int start_he = vertex_to_he[u];
-    if (start_he < 0 || start_he >= n_hes()) return neighbors;
+    if (start_he < 0 || start_he >= n_hes()) return;
 
     const int max_steps = n_hes();
     int steps = 0;
@@ -81,44 +86,54 @@ std::vector<int> HalfEdgeContainer::get_neighbors(int u) const {
 
     do {
         if (curr < 0 || curr >= n_hes()) break;
+
         int target = he_to_vertex[next(curr)];
+
         if (target != -1 && target != u) {
             neighbors.push_back(target);
         }
 
         int tw = twin[curr];
+
         if (tw == -1) {
             hit_boundary = true;
             break;
         }
+
         curr = next(tw);
+
         if (++steps > max_steps) break;
+
     } while (curr != start_he);
 
     if (hit_boundary) {
         int prev_he = prev(start_he);
+
         if (prev_he >= 0 && prev_he < n_hes()) {
             curr = twin[prev_he];
             steps = 0;
+
             while (curr != -1 && curr != start_he) {
                 if (curr < 0 || curr >= n_hes()) break;
+
                 int target = he_to_vertex[next(curr)];
+
                 if (target != -1 && target != u) {
                     neighbors.push_back(target);
                 }
 
                 int p = prev(curr);
+
                 if (p < 0 || p >= n_hes()) break;
+
                 curr = twin[p];
+
                 if (++steps > max_steps) break;
             }
         }
     }
-
-    std::sort(neighbors.begin(), neighbors.end());
-    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
-    return neighbors;
 }
+
 
 float update_triangle(const glm::vec3& x0, const glm::vec3& x1, const glm::vec3& x2, float t1, float t2) {
     const float INF = std::numeric_limits<float>::infinity();
@@ -172,6 +187,7 @@ float update_triangle(const glm::vec3& x0, const glm::vec3& x1, const glm::vec3&
 
 std::vector<float> HalfEdgeContainer::compute_fast_marching_distances(int start_vertex) const {
     const int n = n_vertices();
+    const int n_he = n_hes();
     const float INF = std::numeric_limits<float>::infinity();
     std::vector<float> distances(n, INF);
 
@@ -179,52 +195,57 @@ std::vector<float> HalfEdgeContainer::compute_fast_marching_distances(int start_
         return distances;
     }
 
-    std::vector<bool> vis(n, false);
+    std::vector<uint8_t> vis(n, 0);
+
     using pii = std::pair<float, int>;
     std::priority_queue<pii, std::vector<pii>, std::greater<pii>> pq;
 
     distances[start_vertex] = 0.0f;
     pq.push({0.0f, start_vertex});
 
-    auto update_vertex_eikonal = [&](int u) {
-        if (vis[u]) return;
 
-        float min_dist = distances[u];
-        glm::vec3 pos_u = get_vertex_pos(u);
+    while (!pq.empty()) {
+        auto [current_dist, u] = pq.top();
+        pq.pop();
+
+        if (vis[u]) continue;
+        vis[u] = 1;
 
         int start_he = vertex_to_he[u];
-        if (start_he < 0 || start_he >= n_hes()) return;
-
-        auto process_face = [&](int he) {
-            if (he < 0 || he >= n_hes()) return;
-            int next_he = next(he);
-            int prev_he = prev(he);
-
-            int v1 = he_to_vertex[next_he];
-            int v2 = he_to_vertex[prev_he];
-
-            if (v1 < 0 || v1 >= n || v2 < 0 || v2 >= n) return;
-
-            float t1 = distances[v1];
-            float t2 = distances[v2];
-
-            if (t1 != INF || t2 != INF) {
-                glm::vec3 pos_v1 = get_vertex_pos(v1);
-                glm::vec3 pos_v2 = get_vertex_pos(v2);
-
-                float candidate_t = update_triangle(pos_u, pos_v1, pos_v2, t1, t2);
-                min_dist = std::min(min_dist, candidate_t);
-            }
-        };
-
-        const int max_steps = n_hes();
-        int steps = 0;
+        if (start_he < 0 || start_he >= n_he) continue;
 
         int curr_he = start_he;
+        int steps = 0;
         bool hit_boundary = false;
+
         do {
-            if (curr_he < 0 || curr_he >= n_hes()) break;
-            process_face(curr_he);
+            if (curr_he < 0 || curr_he >= n_he) break;
+            int v = he_to_vertex[next(curr_he)];
+
+            if (v >= 0 && v < n && !vis[v]) {
+                glm::vec3 pos_u = vertices[u];
+                glm::vec3 pos_v = vertices[v];
+
+                float edge_len = glm::distance(pos_u, pos_v);
+                float new_d = distances[u] + edge_len;
+
+                int next_h = next(curr_he);
+                int prev_h = prev(curr_he);
+                int w = he_to_vertex[prev_h];
+
+                if (w >= 0 && w < n) {
+                    float tw = distances[w];
+                    if (tw != INF) {
+                        float eikonal_d = update_triangle(pos_v, pos_u, vertices[w], distances[u], tw);
+                        new_d = std::min(new_d, eikonal_d);
+                    }
+                }
+
+                if (new_d < distances[v]) {
+                    distances[v] = new_d;
+                    pq.push({new_d, v});
+                }
+            }
 
             int tw = twin[curr_he];
             if (tw == -1) {
@@ -232,53 +253,83 @@ std::vector<float> HalfEdgeContainer::compute_fast_marching_distances(int start_
                 break;
             }
             curr_he = next(tw);
-            if (++steps > max_steps) break;
+            if (++steps > n_he) break;
         } while (curr_he != start_he);
 
         if (hit_boundary) {
             int prev_he = prev(start_he);
-            if (prev_he >= 0 && prev_he < n_hes()) {
+            if (prev_he >= 0 && prev_he < n_he) {
                 curr_he = twin[prev_he];
                 steps = 0;
                 while (curr_he != -1 && curr_he != start_he) {
-                    if (curr_he < 0 || curr_he >= n_hes()) break;
-                    process_face(curr_he);
+                    if (curr_he < 0 || curr_he >= n_he) break;
+                    int v = he_to_vertex[next(curr_he)];
+
+                    if (v >= 0 && v < n && !vis[v]) {
+                        float edge_len = glm::distance(vertices[u], vertices[v]);
+                        if (distances[u] + edge_len < distances[v]) {
+                            distances[v] = distances[u] + edge_len;
+                            pq.push({distances[v], v});
+                        }
+                    }
 
                     int p = prev(curr_he);
-                    if (p < 0 || p >= n_hes()) break;
+                    if (p < 0 || p >= n_he) break;
                     curr_he = twin[p];
-                    if (++steps > max_steps) break;
+                    if (++steps > n_he) break;
                 }
-            }
-        }
-
-        if (min_dist < distances[u]) {
-            distances[u] = min_dist;
-            pq.push({min_dist, u});
-        }
-    };
-
-    while (!pq.empty()) {
-        auto [current_dist, u] = pq.top();
-        pq.pop();
-
-        if (vis[u]) continue;
-        vis[u] = true;
-
-        glm::vec3 pos_u = get_vertex_pos(u);
-        for (int v : get_neighbors(u)) {
-            if (!vis[v]) {
-                float edge_len = glm::distance(pos_u, get_vertex_pos(v));
-                if (distances[u] + edge_len < distances[v]) {
-                    distances[v] = distances[u] + edge_len;
-                    pq.push({distances[v], v});
-                }
-                update_vertex_eikonal(v);
             }
         }
     }
+
     return distances;
 }
+
+struct FlatEdgeMap {
+    struct Entry {
+        uint64_t key = 0;
+        int val = -1;
+    };
+
+    std::vector<Entry> table;
+    size_t mask;
+
+    explicit FlatEdgeMap(size_t expected_elements) {
+        size_t cap = 1;
+        while (cap < expected_elements * 2) cap <<= 1;
+        table.resize(cap);
+        mask = cap - 1;
+    }
+
+    static uint64_t hash_key(uint64_t k) {
+        k ^= k >> 30;
+        k *= 0xbf58476d1ce4e5b9ULL;
+        k ^= k >> 27;
+        k *= 0x94d049bb133111ebULL;
+        k ^= k >> 31;
+        return k;
+    }
+
+    void insert(uint64_t key, int val) {
+        uint64_t stored_key = key + 1;
+        size_t idx = hash_key(stored_key) & mask;
+        while (table[idx].key != 0) {
+            idx = (idx + 1) & mask;
+        }
+        table[idx].key = stored_key;
+        table[idx].val = val;
+    }
+
+    int find(uint64_t key) const {
+        uint64_t stored_key = key + 1;
+        size_t idx = hash_key(stored_key) & mask;
+        while (table[idx].key != 0) {
+            if (table[idx].key == stored_key) return table[idx].val;
+            idx = (idx + 1) & mask;
+        }
+        return -1;
+    }
+};
 
 HalfEdgeContainer GeometryUtils::buildHalfEdge(const MeshData &m) {
     const size_t num_indices = m.indices.size();
@@ -290,20 +341,16 @@ HalfEdgeContainer GeometryUtils::buildHalfEdge(const MeshData &m) {
     std::vector<int> vertex_to_he(num_vertices, -1);
     std::vector<int> twin(num_indices, -1);
 
-    std::unordered_map<uint64_t, int> edge_to_he;
-    edge_to_he.reserve(num_indices);
+    FlatEdgeMap edge_to_he(num_indices);
 
-    auto make_key = [](int u, int v) -> uint64_t {
-        return (static_cast<uint64_t>(u) << 32) | static_cast<uint32_t>(v);
+    auto make_key = [](uint32_t u, uint32_t v) -> uint64_t {
+        return (static_cast<uint64_t>(u) << 32) | static_cast<uint64_t>(v);
     };
 
     for (size_t i = 0; i < num_indices; i += 3) {
         int v0 = m.indices[i];
         int v1 = m.indices[i + 1];
         int v2 = m.indices[i + 2];
-
-        if (v0 >= (int)num_vertices || v1 >= (int)num_vertices || v2 >= (int)num_vertices ||
-            v0 < 0 || v1 < 0 || v2 < 0) return {};
 
         he_to_vertex[i]     = v0;
         he_to_vertex[i + 1] = v1;
@@ -313,37 +360,46 @@ HalfEdgeContainer GeometryUtils::buildHalfEdge(const MeshData &m) {
         vertex_to_he[v1] = static_cast<int>(i + 1);
         vertex_to_he[v2] = static_cast<int>(i + 2);
 
-        edge_to_he[make_key(v0, v1)] = static_cast<int>(i);
-        edge_to_he[make_key(v1, v2)] = static_cast<int>(i + 1);
-        edge_to_he[make_key(v2, v0)] = static_cast<int>(i + 2);
+        edge_to_he.insert(make_key(v0, v1), static_cast<int>(i));
+        edge_to_he.insert(make_key(v1, v2), static_cast<int>(i + 1));
+        edge_to_he.insert(make_key(v2, v0), static_cast<int>(i + 2));
     }
 
     for (size_t i = 0; i < num_indices; ++i) {
         int u = he_to_vertex[i];
-        int next_he = (i - (i % 3)) + ((i % 3 + 1) % 3);
+
+        size_t mod3 = i % 3;
+        int next_he = (mod3 == 2) ? static_cast<int>(i) - 2 : static_cast<int>(i) + 1;
+
         int v = he_to_vertex[next_he];
 
-        auto it = edge_to_he.find(make_key(v, u));
-        if (it != edge_to_he.end()) {
-            twin[i] = it->second;
+        int tw = edge_to_he.find(make_key(v, u));
+        if (tw != -1) {
+            twin[i] = tw;
         }
     }
 
     return HalfEdgeContainer{m.vertices, vertex_to_he, he_to_vertex, twin};
 }
+
 MeshData GeometryUtils::buildMeshData(const HalfEdgeContainer &he) {
     MeshData m;
-    std::vector<int> v_remap(he.n_vertices(), -1);
+    const int n_v = he.n_vertices();
+    const int n_he = he.n_hes();
+
+    m.vertices.reserve(n_v);
+    m.uvs.reserve(n_v);
+    m.indices.reserve(n_he);
+
+    std::vector<int> v_remap(n_v, -1);
     int new_v_count = 0;
 
-    for (int f = 0; f < he.n_hes() / 3; ++f) {
+    const int num_faces = n_he / 3;
+    for (int f = 0; f < num_faces; ++f) {
         int h0 = 3 * f;
-        int h1 = h0 + 1;
-        int h2 = h0 + 2;
-
         int u0 = he.he_to_vertex[h0];
-        int u1 = he.he_to_vertex[h1];
-        int u2 = he.he_to_vertex[h2];
+        int u1 = he.he_to_vertex[h0 + 1];
+        int u2 = he.he_to_vertex[h0 + 2];
 
         if (u0 != -1 && u1 != -1 && u2 != -1 && u0 != u1 && u1 != u2 && u2 != u0) {
             int idxs[3] = {u0, u1, u2};
@@ -351,8 +407,8 @@ MeshData GeometryUtils::buildMeshData(const HalfEdgeContainer &he) {
                 int old_v = idxs[k];
                 if (v_remap[old_v] == -1) {
                     v_remap[old_v] = new_v_count++;
-                    m.vertices.emplace_back(he.vertices[old_v]);
-                    m.uvs.emplace_back(0, 0);
+                    m.vertices.push_back(he.vertices[old_v]);
+                    m.uvs.emplace_back(0.0f, 0.0f);
                 }
                 m.indices.push_back(v_remap[old_v]);
             }

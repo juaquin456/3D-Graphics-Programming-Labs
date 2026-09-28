@@ -1,4 +1,5 @@
 #define TINYOBJLOADER_IMPLEMENTATION
+#define TINYOBJLOADER_USE_MAP_BOX_PARSER
 #include "tiny_obj_loader.h"
 
 #include "common/Scene.h"
@@ -10,7 +11,24 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+class TextureCache {
+public:
+    static std::shared_ptr<Texture> get(const std::string& filepath) {
+        static std::unordered_map<std::string, std::weak_ptr<Texture>> cache;
 
+        auto it = cache.find(filepath);
+        if (it != cache.end()) {
+            if (auto tex = it->second.lock()) {
+                return tex;
+            }
+        }
+
+        std::cout << "[TextureCache] Loading new texture from disk: " << filepath << std::endl;
+        auto newTex = std::make_shared<Texture>(filepath);
+        cache[filepath] = newTex;
+        return newTex;
+    }
+};
 std::string replaceCharacters(const std::string& s, char c1, char c2)
 {
     std::string tmp(s);
@@ -115,8 +133,6 @@ Scene Scene::loadOBJ(const std::string& filepath) {
 
     std::filesystem::path p(filepath);
     std::string filename = p.filename().string();
-    std::string ext = p.extension().string();
-
     std::filesystem::path dir = p.parent_path();
     std::string mtl_search_path = dir.string();
 
@@ -124,6 +140,7 @@ Scene Scene::loadOBJ(const std::string& filepath) {
     std::cout << "[Scene] MTL search path: " << mtl_search_path << std::endl;
 
     reader_config.mtl_search_path = mtl_search_path;
+    reader_config.triangulate = true;
 
     if (!reader.ParseFromFile(filepath, reader_config)) {
         if (!reader.Error().empty()) {
@@ -147,21 +164,18 @@ Scene Scene::loadOBJ(const std::string& filepath) {
     for (const auto& mat : materials) {
         if (!mat.diffuse_texname.empty()) {
             std::string diffPath = (dir / replaceCharacters(mat.diffuse_texname, '\\', '/')).string();
-            std::cout << "[Scene] Diffuse map: " << diffPath << std::endl;
-            auto diffTex = std::make_shared<Texture>(diffPath);
+            auto diffTex = TextureCache::get(diffPath);
 
             std::shared_ptr<Texture> specTex = nullptr;
             if (!mat.specular_texname.empty()) {
                 std::string specPath = (dir / replaceCharacters(mat.specular_texname, '\\', '/')).string();
-                std::cout << "[Scene] Specular map: " << specPath << std::endl;
-                specTex = std::make_shared<Texture>(specPath);
+                specTex = TextureCache::get(specPath);
             }
 
             std::shared_ptr<Texture> normTex = nullptr;
             if (!mat.bump_texname.empty()) {
                 std::string normPath = (dir / replaceCharacters(mat.bump_texname, '\\', '/')).string();
-                std::cout << "[Scene] Normal map: " << normPath << std::endl;
-                normTex = std::make_shared<Texture>(normPath);
+                normTex = TextureCache::get(normPath);
             }
 
             auto texMat = std::make_shared<TexturedMaterial>(diffTex, specTex, normTex);
@@ -179,9 +193,13 @@ Scene Scene::loadOBJ(const std::string& filepath) {
         }
     }
 
+    const size_t total_positions = attrib.vertices.size() / 3;
+
     for (const auto& shape : shapes) {
         std::unordered_map<int, MeshData> matToMesh;
-        std::unordered_map<int, std::unordered_map<std::string, int>> matToUniqueVerts;
+        std::unordered_map<int, std::vector<int>> matToUniqueVerts;
+
+        size_t total_indices = shape.mesh.indices.size();
 
         size_t index_offset = 0;
         for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
@@ -191,16 +209,22 @@ Scene Scene::loadOBJ(const std::string& filepath) {
             MeshData& meshData = matToMesh[matId];
             auto& uniqueVerts = matToUniqueVerts[matId];
 
+            if (uniqueVerts.empty()) {
+                uniqueVerts.assign(total_positions, -1);
+                meshData.vertices.reserve(total_positions);
+                meshData.indices.reserve(total_indices);
+                meshData.uvs.reserve(total_positions);
+                meshData.normals.reserve(total_positions);
+            }
+
             for (size_t v = 0; v < fv; v++) {
                 tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
 
-                std::string key = std::to_string(idx.vertex_index) + "/" +
-                                  std::to_string(idx.texcoord_index) + "/" +
-                                  std::to_string(idx.normal_index);
+                int posKey = idx.vertex_index;
 
-                auto it = uniqueVerts.find(key);
-                if (it != uniqueVerts.end()) {
-                    meshData.indices.push_back(it->second);
+                int existingIdx = uniqueVerts[posKey];
+                if (existingIdx != -1) {
+                    meshData.indices.push_back(existingIdx);
                 } else {
                     int newIdx = static_cast<int>(meshData.vertices.size());
 
@@ -216,6 +240,8 @@ Scene Scene::loadOBJ(const std::string& filepath) {
                             attrib.texcoords[2 * idx.texcoord_index + 0],
                             attrib.texcoords[2 * idx.texcoord_index + 1]
                         );
+                    } else {
+                        meshData.uvs.emplace_back(0.0f, 0.0f);
                     }
 
                     if (idx.normal_index >= 0 &&
@@ -225,9 +251,11 @@ Scene Scene::loadOBJ(const std::string& filepath) {
                             attrib.normals[3 * idx.normal_index + 1],
                             attrib.normals[3 * idx.normal_index + 2]
                         );
+                    } else {
+                        meshData.normals.emplace_back(0.0f, 1.0f, 0.0f);
                     }
 
-                    uniqueVerts[key] = newIdx;
+                    uniqueVerts[posKey] = newIdx;
                     meshData.indices.push_back(newIdx);
                 }
             }
@@ -240,6 +268,10 @@ Scene Scene::loadOBJ(const std::string& filepath) {
 
             if (meshData.vertices.empty()) continue;
 
+            if (meshData.normals.empty()) {
+                meshData.recompute_normals();
+            }
+
             auto meshAsset = std::make_shared<MeshAsset>(meshData);
             scene.m_meshAssets.push_back(meshAsset);
 
@@ -247,13 +279,12 @@ Scene Scene::loadOBJ(const std::string& filepath) {
             if (matId >= 0 && static_cast<size_t>(matId) < loadedMaterials.size()) {
                 mat = loadedMaterials[matId];
             } else {
-                mat = PhongMaterial::Gold();
+                mat = PhongMaterial::WhitePlastic();
             }
 
             RenderObject obj(meshAsset, mat);
             scene.objects.push_back(obj);
         }
-        std::cout << "[Scene] Loaded a shape" << std::endl;
     }
 
     std::cout << "[Scene] Created " << scene.objects.size() << " render object(s)" << std::endl;

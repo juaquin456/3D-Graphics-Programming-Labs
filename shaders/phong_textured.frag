@@ -35,7 +35,7 @@ float calculateShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
 
-    if (projCoords.z > 1.0) return 0.0;
+    if (projCoords.z > 1.0 || projCoords.x < 0.0 || projCoords.x > 1.0 || projCoords.y < 0.0 || projCoords.y > 1.0) return 0.0;
 
     float bias = max(0.005 * (1.0 - dot(normal, lightDir)), 0.001);
 
@@ -85,7 +85,5 @@ void main() {
     float shadow = useShadows ? calculateShadow(FragPosLightSpace, norm, lightDir) : 0.0;
     
     vec3 result = material.Ke + ambient + (1.0 - shadow) * (diffuse + specular);
-    // result = pow(result, vec3(1.0 / 2.2));
-
     FragColor = vec4(result, 1.0);
 }

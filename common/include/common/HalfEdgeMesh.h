@@ -30,7 +30,7 @@ struct HalfEdgeContainer {
     [[nodiscard]] glm::vec3 get_vertex_pos(int v_idx) const;
     [[nodiscard]] glm::vec3 get_vertex(int he) const;
     [[nodiscard]] int get_he(int u, int v) const;
-    [[nodiscard]] std::vector<int> get_neighbors(int u) const;
+    void get_neighbors(int u, std::vector<int>& neighbors) const;
 
     [[nodiscard]] std::vector<float> compute_fast_marching_distances(int start_vertex) const;
 };

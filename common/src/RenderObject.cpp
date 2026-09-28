@@ -1,8 +1,5 @@
-//
-// Created by juaquin-remon on 9/6/26.
-//
-
 #include "common/RenderObject.h"
+#include <cmath>
 
 void RenderObject::rotateAxis(float angleDegrees, const glm::vec3 &axis) {
     glm::quat deltaRot = glm::angleAxis(glm::radians(angleDegrees), glm::normalize(axis));
@@ -45,9 +42,16 @@ void RenderObject::drawGeometry(const Shader &shader) const {
 }
 
 glm::mat4 DirectionalLight::getLightSpaceMatrix(float orthoSize, float nearPlane, float farPlane) const {
-    glm::mat4 lightView = glm::lookAt(position,
-                                  target,
-                                  glm::vec3( 0.0f, 1.0f,  0.0f));
+    glm::vec3 dir = target - position;
+    if (glm::length(dir) < 1e-5f) {
+        dir = glm::vec3(0.0f, -1.0f, 0.0f);
+    } else {
+        dir = glm::normalize(dir);
+    }
+
+    glm::vec3 up = (std::abs(dir.y) > 0.99f) ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+
+    glm::mat4 lightView = glm::lookAt(position, target, up);
     glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
 
     return lightProjection * lightView;

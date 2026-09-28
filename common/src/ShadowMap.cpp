@@ -32,7 +32,7 @@ bool ShadowMap::init(unsigned int shadowWidth, unsigned int shadowHeight) {
     glReadBuffer(GL_NONE);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "ERROR::SHADOWMAP: Framebuffer no está completo!" << std::endl;
+        std::cerr << "[ShadowMap] Error: Framebuffer is not complete!" << std::endl;
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return false;
     }

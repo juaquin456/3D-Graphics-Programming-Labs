@@ -19,7 +19,7 @@ struct Texture {
    Texture() = default;
    explicit Texture(const std::string& filename);
 
-   void init(int width, int height, const unsigned char* data, GLenum format);
+   void init(int width, int height, const unsigned char* data, GLenum format, GLenum internalFormat);
    Texture& operator=(Texture const& texture) = default;
    void bind(unsigned int unit = 0) const {
       glActiveTexture(GL_TEXTURE0 + unit);

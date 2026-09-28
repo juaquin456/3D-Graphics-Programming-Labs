@@ -5,6 +5,7 @@
 #include <utility>
 #include <fstream>
 #include <sstream>
+#include <chrono>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -15,11 +16,11 @@
 #include "common/HalfEdgeMesh.h"
 #include "common/MeshAsset.h"
 #include "common/MeshData.h"
-#include "common/MeshSimplifier.h"
 #include "common/RenderObject.h"
 #include "common/Scene.h"
 #include "common/Shader.h"
 #include "common/ShadowMap.h"
+#include "common/MeshSimplifier.h"
 
 #include "gui/GuiManager.h"
 
@@ -35,6 +36,8 @@ double lastMouseX = 0, lastMouseY = 0;
 
 void triggerFastMarchingOnPick(PickResult& pick) {
     if (!pick.hit || !pick.meshAsset) return;
+
+    auto start = std::chrono::high_resolution_clock::now();
 
     MeshData& meshData = pick.meshAsset->mesh;
 
@@ -68,8 +71,12 @@ void triggerFastMarchingOnPick(PickResult& pick) {
     }
     pick.meshAsset->updateGPU();
 
-    std::cout << "[Fast Marching] Calculado con éxito desde vértice semilla ID: "
-              << pick.vertexIndex << " (Max Dist: " << maxDist << ")" << std::endl;
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
+
+    std::cout << "[Fast Marching] Computed distance field from seed vertex ID: "
+              << pick.vertexIndex << " (" << meshData.vertices.size() << " vertices) | Time: "
+              << duration.count() << " ms (Max Dist: " << maxDist << ")" << std::endl;
 }
 
 void triggerMeshSimplification(std::shared_ptr<MeshAsset>& meshAsset, float targetRatio) {
@@ -88,6 +95,8 @@ void triggerMeshSimplification(std::shared_ptr<MeshAsset>& meshAsset, float targ
     int trianglesToRemove = totalTriangles - targetTriangles;
     int edgesToRemove = trianglesToRemove / 2;
 
+    auto start = std::chrono::high_resolution_clock::now();
+
     HalfEdgeContainer he = GeometryUtils::buildHalfEdge(baseMesh);
     MeshSimplifier simplifier(he);
 
@@ -100,9 +109,17 @@ void triggerMeshSimplification(std::shared_ptr<MeshAsset>& meshAsset, float targ
     meshAsset->mesh = simplifiedMesh;
     meshAsset->updateGPU();
 
-    std::cout << "[QEM] Simplificado de " << totalTriangles
-              << " a " << (simplifiedMesh.indices.size() / 3)
-              << " triángulos (Ratio: " << targetRatio << ")" << std::endl;
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
+
+    int newTriangles = static_cast<int>(simplifiedMesh.indices.size() / 3);
+    float reductionRatio = (1.0f - static_cast<float>(newTriangles) / totalTriangles) * 100.0f;
+
+    std::cout << "--------------------------------------------------" << std::endl;
+    std::cout << "[QEM Simplifier] Execution Time: " << duration.count() << " ms" << std::endl;
+    std::cout << "[QEM Simplifier] Triangles: " << totalTriangles
+              << " -> " << newTriangles << " (" << reductionRatio << "% reduced)" << std::endl;
+    std::cout << "--------------------------------------------------" << std::endl;
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
@@ -151,9 +168,9 @@ void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
                 engineState.lastPickResult = pick;
                 engineState.hasSelection = true;
 
-                std::cout << "[Picking] Vértice seleccionado ID: " << pick.vertexIndex
-                          << " en la sub-malla (" << pick.meshAsset.get() << ")\n"
-                          << " Posición Mundo: (" << pick.vertexWorldPos.x << ", "
+                std::cout << "[Picking] Selected Vertex ID: " << pick.vertexIndex
+                          << " in sub-mesh (" << pick.meshAsset.get() << ")\n"
+                          << "          World Position: (" << pick.vertexWorldPos.x << ", "
                           << pick.vertexWorldPos.y << ", " << pick.vertexWorldPos.z << ")" << std::endl;
 
                 triggerFastMarchingOnPick(pick);
@@ -191,7 +208,7 @@ void process_input(GLFWwindow *window, float deltaTime) {
 
 int main() {
     if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
+        std::cerr << "[GLFW] Error: Failed to initialize GLFW" << std::endl;
         return -1;
     }
 
@@ -201,7 +218,7 @@ int main() {
 
     GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "3D Scene Viewer Engine", NULL, NULL);
     if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
+        std::cerr << "[GLFW] Error: Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return -1;
     }
@@ -209,7 +226,7 @@ int main() {
 
     glfwSwapInterval(0);
     if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
-        std::cerr << "Failed to initialize GLAD" << std::endl;
+        std::cerr << "[GLAD] Error: Failed to initialize GLAD" << std::endl;
         return -1;
     }
 
@@ -230,14 +247,14 @@ int main() {
     Shader uvHeatmapShader("../../shaders/debug_simple.vert", "../../shaders/debug_uv_heatmap.frag");
 
     DirectionalLight light;
-    light.ambient = glm::vec3(0.35);
-    light.position = glm::vec3(0, 5, 0);
+    light.ambient = glm::vec3(0.35f);
+    light.diffuse = glm::vec3(0.8f);
+    light.specular = glm::vec3(1.0f);
+    light.position = glm::vec3(2.0f, 6.0f, 3.0f);
 
     ShadowMap shadowMap;
     shadowMap.init(2048, 2048);
 
-    //s = Scene::loadOBJ("../../scenes/fireplace_room/fireplace_room.obj");
-    //s = Scene::loadOBJ("../../models/dragon.obj");
     float lastFrameTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -261,8 +278,9 @@ int main() {
             }
             engineState.triggerResetMesh = false;
         }
+
         if (engineState.triggerLoadOBJ) {
-            std::cout << "[Scene] Reemplazando escena actual con: " << engineState.objFilePath << std::endl;
+            std::cout << "[Scene] Replacing current scene with: " << engineState.objFilePath << std::endl;
 
             engineState.hasSelection = false;
             engineState.lastPickResult = PickResult{};
@@ -271,12 +289,12 @@ int main() {
 
             if (!newScene.objects.empty()) {
                 s = std::move(newScene);
-                std::cout << "[Scene] Escena cargada exitosamente." << std::endl;
+                std::cout << "[Scene] Scene loaded successfully." << std::endl;
             } else {
-                std::cerr << "[Scene] Error: No se pudo cargar el archivo o la escena está vacía." << std::endl;
+                std::cerr << "[Scene] Error: Failed to load file or scene is empty." << std::endl;
             }
 
-            engineState.triggerLoadOBJ = false; // Reset flag
+            engineState.triggerLoadOBJ = false;
         }
 
         // 1. Input & Procedural Light Animation Update

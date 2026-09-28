@@ -5,45 +5,174 @@
 #include <iostream>
 #include <vector>
 #include <limits>
+#define GLM_ENABLE_EXPERIMENTAL
+#include "glm/gtx/compatibility.hpp"
 
 MeshSimplifier::MeshSimplifier(HalfEdgeContainer& mesh) : mesh(mesh) {}
+bool solve_qem_target(const glm::mat4& Q, glm::vec3& out_p) {
+    float m[3][4] = {
+        { Q[0][0], Q[1][0], Q[2][0], -Q[3][0] },
+        { Q[1][0], Q[1][1], Q[2][1], -Q[3][1] },
+        { Q[2][0], Q[2][1], Q[2][2], -Q[3][2] }
+    };
 
-void MeshSimplifier::compute_target(int u, int v, const std::vector<glm::mat4>& Q,
-                                    glm::vec4& out_vp, float& out_err) const {
-    glm::mat4 Qp = Q[u] + Q[v];
-    glm::mat4 Qp_inv = Qp;
+    float max_value = 0.0f;
 
-    Qp_inv[0].w = 0.0f;
-    Qp_inv[1].w = 0.0f;
-    Qp_inv[2].w = 0.0f;
-    Qp_inv[3].w = 1.0f;
-
-    float det = glm::determinant(Qp_inv);
-    if (std::abs(det) > 1e-6f) {
-        auto inv = glm::inverse(Qp_inv);
-        out_vp = inv * glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
-        out_vp.w = 1.0f;
-    } else {
-        glm::vec3 p_u = mesh.get_vertex_pos(u);
-        glm::vec3 p_v = mesh.get_vertex_pos(v);
-        glm::vec3 p_mid = (p_u + p_v) * 0.5f;
-
-        glm::vec4 candidates[3] = { glm::vec4{p_u, 1.0f}, glm::vec4{p_v, 1.0f}, glm::vec4{p_mid, 1.0f} };
-        float min_e = 1e30f;
-        auto best_vp = candidates[0];
-
-        for (int k = 0; k < 3; ++k) {
-            float e = glm::dot(candidates[k], Qp * candidates[k]);
-            if (e < min_e) {
-                min_e = e;
-                best_vp = candidates[k];
-            }
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            max_value = std::max(
+                max_value,
+                std::abs(m[row][col])
+            );
         }
-        out_vp = best_vp;
     }
 
-    out_err = glm::dot(out_vp, Qp * out_vp);
-    if (out_err < 0.0f || std::isnan(out_err)) out_err = 0.0f;
+    if (max_value <= 1e-12f) {
+        return false;
+    }
+
+    const float tolerance = max_value * 1e-6f;
+
+    for (int col = 0; col < 3; ++col) {
+        int pivot = col;
+        float pivot_abs = std::abs(m[col][col]);
+
+        for (int row = col + 1; row < 3; ++row) {
+            float value = std::abs(m[row][col]);
+
+            if (value > pivot_abs) {
+                pivot = row;
+                pivot_abs = value;
+            }
+        }
+
+        if (pivot_abs <= tolerance) {
+            return false;
+        }
+
+        if (pivot != col) {
+            for (int j = col; j < 4; ++j) {
+                std::swap(m[col][j], m[pivot][j]);
+            }
+        }
+
+        for (int row = col + 1; row < 3; ++row) {
+            const float factor = m[row][col] / m[col][col];
+
+            for (int j = col; j < 4; ++j) {
+                m[row][j] -= factor * m[col][j];
+            }
+        }
+    }
+
+    glm::vec3 p;
+
+    p.z = m[2][3] / m[2][2];
+
+    p.y = (
+        m[1][3] - m[1][2] * p.z
+    ) / m[1][1];
+
+    p.x = (
+        m[0][3]
+        - m[0][1] * p.y
+        - m[0][2] * p.z
+    ) / m[0][0];
+
+    if (!glm::all(glm::isfinite(p))) {
+        return false;
+    }
+
+    out_p = p;
+    return true;
+}
+float evaluate_quadric(const glm::mat4& Q, const glm::vec3& p) {
+    const float x = p.x;
+    const float y = p.y;
+    const float z = p.z;
+
+    return
+        Q[0][0] * x * x +
+        2.0f * Q[1][0] * x * y +
+        2.0f * Q[2][0] * x * z +
+        2.0f * Q[3][0] * x +
+        Q[1][1] * y * y +
+        2.0f * Q[2][1] * y * z +
+        2.0f * Q[3][1] * y +
+        Q[2][2] * z * z +
+        2.0f * Q[3][2] * z +
+        Q[3][3];
+}
+void MeshSimplifier::compute_target(
+    int u,
+    int v,
+    const std::vector<glm::mat4>& Q,
+    glm::vec4& out_vp,
+    float& out_err
+) const {
+    const glm::mat4 Qp = Q[u] + Q[v];
+
+    glm::vec3 p;
+
+    if (solve_qem_target(Qp, p)) {
+        out_vp = glm::vec4(p, 1.0f);
+
+        out_err =
+            Qp[3][0] * p.x +
+            Qp[3][1] * p.y +
+            Qp[3][2] * p.z +
+            Qp[3][3];
+
+        if (!std::isfinite(out_err) || out_err < 0.0f) {
+            out_err = 0.0f;
+        }
+
+        return;
+    } else {
+        const glm::vec3 p_u = mesh.get_vertex_pos(u);
+        const glm::vec3 p_v = mesh.get_vertex_pos(v);
+
+        const glm::vec3 edge = p_v - p_u;
+        const float edge_len2 = glm::dot(edge, edge);
+
+        const float max_distance2 = edge_len2 * 4.0f;
+
+        const float dist_u2 = glm::dot(p - p_u, p - p_u);
+        const float dist_v2 = glm::dot(p - p_v, p - p_v);
+
+        if (dist_u2 > max_distance2 ||
+            dist_v2 > max_distance2) {
+            }
+    }
+
+    const glm::vec3 p_u = mesh.get_vertex_pos(u);
+    const glm::vec3 p_v = mesh.get_vertex_pos(v);
+    const glm::vec3 p_mid = (p_u + p_v) * 0.5f;
+
+    const glm::vec3 candidates[3] = {
+        p_u,
+        p_v,
+        p_mid
+    };
+
+    float min_e = std::numeric_limits<float>::max();
+    glm::vec3 best_p = p_u;
+
+    for (const glm::vec3& candidate : candidates) {
+        const float e = evaluate_quadric(Qp, candidate);
+
+        if (e < min_e) {
+            min_e = e;
+            best_p = candidate;
+        }
+    }
+
+    out_vp = glm::vec4(best_p, 1.0f);
+    out_err = min_e;
+
+    if (!std::isfinite(out_err) || out_err < 0.0f) {
+        out_err = 0.0f;
+    }
 }
 
 void MeshSimplifier::simplify(int edges_to_remove) {
@@ -52,60 +181,35 @@ void MeshSimplifier::simplify(int edges_to_remove) {
 
     std::vector<glm::mat4> Q(num_vertices, glm::mat4(0.0f));
 
-    for (int i = 0; i < num_vertices; i++) {
-        int init_he = mesh.vertex_to_he[i];
-        if (init_he == -1) continue;
+    for (int f = 0; f < num_hes / 3; ++f) {
+        int h0 = 3 * f;
+        int u0 = mesh.he_to_vertex[h0];
+        int u1 = mesh.he_to_vertex[h0 + 1];
+        int u2 = mesh.he_to_vertex[h0 + 2];
 
-        glm::mat4 sumQ(0.0f);
+        if (u0 == -1 || u1 == -1 || u2 == -1) continue;
 
-        auto process_face = [&](int he) {
-            int he0 = he;
-            int he1 = next(he0);
-            int he2 = next(he1);
+        glm::vec3 p0 = mesh.get_vertex_pos(u0);
+        glm::vec3 p1 = mesh.get_vertex_pos(u1);
+        glm::vec3 p2 = mesh.get_vertex_pos(u2);
 
-            auto v0 = mesh.get_vertex(he0);
-            auto v1 = mesh.get_vertex(he1);
-            auto v2 = mesh.get_vertex(he2);
+        glm::vec3 cr = glm::cross(p1 - p0, p2 - p0);
+        float area = glm::length(cr);
 
-            glm::vec3 cr = glm::cross(v1 - v0, v2 - v0);
-            float area = glm::length(cr);
+        if (area > 1e-8f) {
+            glm::vec3 normal = cr / area;
+            float d = -glm::dot(normal, p0);
+            glm::vec4 p{normal.x, normal.y, normal.z, d};
+            glm::mat4 Q_face = glm::outerProduct(p, p);
 
-            if (area > 1e-8f) {
-                glm::vec3 normal = cr / area;
-                float d = -glm::dot(normal, v0);
-                glm::vec4 p{normal.x, normal.y, normal.z, d};
-                sumQ += glm::outerProduct(p, p);
-            }
-        };
-
-        int current_he = init_he;
-        bool hit_boundary = false;
-        do {
-            process_face(current_he);
-            int tw = mesh.twin[current_he];
-            if (tw == -1) {
-                hit_boundary = true;
-                break;
-            }
-            current_he = next(tw);
-        } while (current_he != init_he && current_he != -1);
-
-        if (hit_boundary) {
-            int p_he = prev(init_he);
-            if (p_he != -1) {
-                current_he = mesh.twin[p_he];
-                while (current_he != -1 && current_he != init_he) {
-                    process_face(current_he);
-                    int p = prev(current_he);
-                    current_he = (p != -1) ? mesh.twin[p] : -1;
-                }
-            }
+            Q[u0] += Q_face;
+            Q[u1] += Q_face;
+            Q[u2] += Q_face;
         }
-
-        Q[i] = sumQ;
     }
 
     QueueSystem q;
+
     for (int he = 0; he < num_hes; he++) {
         int u = mesh.he_to_vertex[he];
         int v = mesh.he_to_vertex[next(he)];
@@ -114,16 +218,20 @@ void MeshSimplifier::simplify(int edges_to_remove) {
             glm::vec4 vp;
             float err;
             compute_target(u, v, Q, vp, err);
+
             q.push_or_update(u, v, err, vp);
         }
     }
-
+    std::vector<int> neighbor_marks(mesh.n_vertices(), 0);
+    int neighbor_stamp = 0;
     auto link_twins = [&](int a, int b) {
         if (a != -1) mesh.twin[a] = b;
         if (b != -1) mesh.twin[b] = a;
     };
-
     int removed = 0;
+    std::vector<int> hes_from_v;
+    hes_from_v.reserve(16);
+    std::vector<int> n_u, n_v;
     while (!q.empty() && removed < edges_to_remove) {
         queueData top;
         if (!q.pop(top)) break;
@@ -133,15 +241,19 @@ void MeshSimplifier::simplify(int edges_to_remove) {
 
         if (mesh.vertex_to_he[u] == -1 || mesh.vertex_to_he[v] == -1) continue;
 
-        auto n_u = mesh.get_neighbors(u);
-        auto n_v = mesh.get_neighbors(v);
+        mesh.get_neighbors(u, n_u);
+        mesh.get_neighbors(v, n_v);
+        ++neighbor_stamp;
+        for (int n: n_u) {
+            neighbor_marks[n] = neighbor_stamp;
+        }
         int common_neighbors = 0;
-        for (int nu : n_u) {
-            for (int nv : n_v) {
-                if (nu == nv) common_neighbors++;
+
+        for (int n : n_v) {
+            if (neighbor_marks[n] == neighbor_stamp) {
+                ++common_neighbors;
             }
         }
-
         if (common_neighbors > 2) {
             q.erase_edge(u, v);
             continue;
@@ -155,7 +267,7 @@ void MeshSimplifier::simplify(int edges_to_remove) {
             continue;
         }
 
-        std::vector<int> hes_from_v;
+        hes_from_v.clear();
         int start_he_v = mesh.vertex_to_he[v];
         if (start_he_v != -1 && mesh.he_to_vertex[start_he_v] == v) {
             int curr = start_he_v;
@@ -239,20 +351,24 @@ void MeshSimplifier::simplify(int edges_to_remove) {
         mesh.vertex_to_he[v] = -1;
 
         q.erase_edge(u, v);
-        std::vector<int> neighbors = mesh.get_neighbors(u);
-
-        for (int n : neighbors) {
+        for (int n : n_v) {
             if (n == u || n == -1) continue;
 
             q.erase_edge(v, n);
+        }
+
+        mesh.get_neighbors(u, n_u);
+
+        for (int n : n_u) {
+            if (n == u || n == -1) continue;
 
             glm::vec4 new_vp;
             float new_err;
+
             compute_target(u, n, Q, new_vp, new_err);
 
             q.push_or_update(u, n, new_err, new_vp);
         }
-
         removed++;
     }
 }
