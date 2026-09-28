@@ -7,17 +7,9 @@
 #include <algorithm>
 #include <glad/glad.h>
 
-MeshAsset::MeshAsset(const std::string &filename): MeshAsset(MeshData::readPly(filename)) {}
 
-MeshAsset::MeshAsset(const MeshData &data) {
-    /*auto [min_pt, max_pt] = data.bounding_box();
-    localCenter = (min_pt + max_pt) * 0.5f;
-
-    glm::vec3 extent = max_pt - min_pt;
-    float max_extent = std::max({extent.x, extent.y, extent.z});
-    autoScaleFactor = (max_extent > 0.0f) ? (1.0f / max_extent) : 1.0f;
-    */
-    setupGPU(data);
+MeshAsset::MeshAsset(const MeshData &data): mesh(std::move(data)) {
+    setupGPU();
 }
 
 MeshAsset::~MeshAsset() {
@@ -26,8 +18,58 @@ MeshAsset::~MeshAsset() {
         glDeleteBuffers(1, &m_VBO_Pos);
         if (m_VBO_UV != 0) glDeleteBuffers(1, &m_VBO_UV);
         if (m_VBO_Norm != 0) glDeleteBuffers(1, &m_VBO_Norm);
+        if (m_VBO_Tang != 0) glDeleteBuffers(1, &m_VBO_Tang);
         glDeleteBuffers(1, &m_EBO);
     }
+}
+
+void MeshAsset::updateGPU() {
+   m_indexCount = static_cast<GLsizei>(mesh.indices.size());
+
+    glBindVertexArray(m_VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Pos);
+    glBufferData(GL_ARRAY_BUFFER, mesh.vertices.size() * sizeof(glm::vec3), mesh.vertices.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+
+    // 2. UVs (location = 1)
+    if (!mesh.uvs.empty()) {
+        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_UV);
+        glBufferData(GL_ARRAY_BUFFER, mesh.uvs.size() * sizeof(glm::vec2), mesh.uvs.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
+    }
+
+    // 3. Normales (location = 2)
+    if (!mesh.normals.empty()) {
+        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Norm);
+        glBufferData(GL_ARRAY_BUFFER, mesh.normals.size() * sizeof(glm::vec3), mesh.normals.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    }
+
+    // 4. Tangentes (location = 3)
+    if (!mesh.tangents.empty()) {
+        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Tang);
+        glBufferData(GL_ARRAY_BUFFER, mesh.tangents.size() * sizeof(glm::vec3), mesh.tangents.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    }
+
+    // 5. Distancias Geodésicas para Fast Marching (location = 4)
+    /* if (!meshData.distances.empty()) {
+        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Dist);
+        glBufferData(GL_ARRAY_BUFFER, meshData.distances.size() * sizeof(float), meshData.distances.data(), GL_DYNAMIC_DRAW);
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+    }*/
+
+    // Indices (EBO)
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size() * sizeof(int), mesh.indices.data(), GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
 }
 
 void MeshAsset::draw() const {
@@ -36,44 +78,13 @@ void MeshAsset::draw() const {
     glBindVertexArray(0);
 }
 
-void MeshAsset::setupGPU(const MeshData &data) {
-    m_indexCount = static_cast<GLsizei>(data.indices.size());
-
+void MeshAsset::setupGPU() {
     glGenVertexArrays(1, &m_VAO);
     glGenBuffers(1, &m_VBO_Pos);
+    glGenBuffers(1, &m_VBO_UV);
+    glGenBuffers(1, &m_VBO_Norm);
+    glGenBuffers(1, &m_VBO_Tang);
     glGenBuffers(1, &m_EBO);
 
-    glBindVertexArray(m_VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Pos);
-    glBufferData(GL_ARRAY_BUFFER, data.vertices.size() * sizeof(glm::vec3), data.vertices.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    if (!data.uvs.empty()) {
-        glGenBuffers(1, &m_VBO_UV);
-        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_UV);
-        glBufferData(GL_ARRAY_BUFFER, data.uvs.size() * sizeof(glm::vec2), data.uvs.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
-        glEnableVertexAttribArray(1);
-    }
-    if (!data.normals.empty()) {
-        glGenBuffers(1, &m_VBO_Norm);
-        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Norm);
-        glBufferData(GL_ARRAY_BUFFER, data.normals.size() * sizeof(glm::vec3), data.normals.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
-        glEnableVertexAttribArray(2);
-    }
-    if (!data.tangents.empty()) {
-        glGenBuffers(1, &m_VBO_Tang);
-        glBindBuffer(GL_ARRAY_BUFFER, m_VBO_Tang);
-        glBufferData(GL_ARRAY_BUFFER, data.tangents.size() * sizeof(glm::vec3), data.tangents.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
-        glEnableVertexAttribArray(3);
-    }
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.indices.size() * sizeof(int), data.indices.data(), GL_STATIC_DRAW);
-
-    glBindVertexArray(0);
+    updateGPU();
 }

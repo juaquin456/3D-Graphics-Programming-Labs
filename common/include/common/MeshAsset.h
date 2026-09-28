@@ -17,7 +17,7 @@ public:
 
     using Ptr = std::shared_ptr<MeshAsset>;
 
-    explicit MeshAsset(const std::string& filename);
+    MeshData mesh;
 
     explicit MeshAsset(const MeshData& data);
 
@@ -26,13 +26,14 @@ public:
     MeshAsset(const MeshAsset&) = delete;
     MeshAsset& operator=(const MeshAsset&) = delete;
 
+    void updateGPU();
     void draw() const;
 
 private:
     unsigned int m_VAO{0}, m_VBO_Pos{0}, m_VBO_UV{0}, m_EBO{0}, m_VBO_Norm{0}, m_VBO_Tang;
     GLsizei m_indexCount{0};
 
-    void setupGPU(const MeshData& data);
+    void setupGPU();
 };
 
 

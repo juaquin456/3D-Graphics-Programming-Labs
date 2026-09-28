@@ -3,6 +3,7 @@
 
 #include <vector>
 #include "common/MeshData.h"
+#include <glm/glm.hpp>
 
 inline int next(int he) {
     int relative_pos = he % 3;
@@ -17,21 +18,25 @@ inline int prev(int he) {
 }
 
 struct HalfEdgeContainer {
-    std::vector<glm::vec3> vertices;   // 3 * nvertices
-    std::vector<int> vertex_to_he; // nvertices
-    std::vector<int> he_to_vertex; // 3 * faces = halfedges
-    std::vector<int> twin;         // 3 * faces = halfedges
+    std::vector<glm::vec3> vertices;   // unique positions
+    std::vector<int> vertex_to_he;     // unique positions count
+    std::vector<int> he_to_vertex;     // 3 * faces = halfedges
+    std::vector<int> twin;             // 3 * faces = halfedges
+    std::vector<int> orig_to_pos;      // maps original mesh vertex index -> unique pos index
 
-    int n_vertices() const;
-    int n_hes() const;
+    [[nodiscard]] int n_vertices() const;
+    [[nodiscard]] int n_hes() const;
 
-    glm::vec3 get_vertex_pos(int v_idx) const;
-    glm::vec3 get_vertex(int he) const;
-    int get_he(int u, int v) const;
-    std::vector<int> get_neighbors(int u) const;
-    MeshData to_mesh() const;
+    [[nodiscard]] glm::vec3 get_vertex_pos(int v_idx) const;
+    [[nodiscard]] glm::vec3 get_vertex(int he) const;
+    [[nodiscard]] int get_he(int u, int v) const;
+    [[nodiscard]] std::vector<int> get_neighbors(int u) const;
+
+    [[nodiscard]] std::vector<float> compute_fast_marching_distances(int start_vertex) const;
 };
 
-HalfEdgeContainer NewHalfEdgeContainer(const MeshData& m);
-
+namespace GeometryUtils {
+    HalfEdgeContainer buildHalfEdge(const MeshData& mesh);
+    MeshData buildMeshData(const HalfEdgeContainer& he);
+}
 #endif // COMMON_HALFEDGEMESH_H
