@@ -18,6 +18,7 @@ public:
     using Ptr = std::shared_ptr<MeshAsset>;
 
     MeshData mesh;
+    MeshData originalMesh;
 
     explicit MeshAsset(const MeshData& data);
 
@@ -26,6 +27,10 @@ public:
     MeshAsset(const MeshAsset&) = delete;
     MeshAsset& operator=(const MeshAsset&) = delete;
 
+    void restoreOriginal() {
+        mesh = originalMesh;
+        updateGPU();
+    }
     void updateGPU();
     void draw() const;
 

@@ -16,6 +16,14 @@ struct EngineState {
     bool isHeatmapMode = false;
     PickResult lastPickResult;
     bool hasSelection = false;
+
+    float simplificationRatio = 0.5f;
+    bool triggerSimplification = false;
+    bool triggerResetMesh = false;
+    bool showWireframe = false;
+
+    char objFilePath[256] = "../../models/bunny.obj";
+    bool triggerLoadOBJ = false;
 };
 
 class GuiManager {

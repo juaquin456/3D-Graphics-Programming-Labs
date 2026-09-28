@@ -25,6 +25,14 @@ void GuiManager::render(EngineState& state, DirectionalLight& light, const Camer
     if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGuiIO& io = ImGui::GetIO();
         ImGui::Text("FPS: %.1f (%.3f ms/frame)", io.Framerate, 1000.0f / io.Framerate);
+
+        if (ImGui::Checkbox("Show Wireframe", &state.showWireframe)) {
+            if (state.showWireframe) {
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            } else {
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            }
+        }
     }
 
     if (ImGui::CollapsingHeader("Lighting & Shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -58,6 +66,48 @@ void GuiManager::render(EngineState& state, DirectionalLight& light, const Camer
         }
     }
 
+    if (ImGui::CollapsingHeader("Mesh Simplification", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (state.hasSelection && state.lastPickResult.hit && state.lastPickResult.meshAsset) {
+            auto& activeMesh = state.lastPickResult.meshAsset->mesh;
+
+            int currentTriangles = static_cast<int>(activeMesh.indices.size() / 3);
+            int currentVertices  = static_cast<int>(activeMesh.vertices.size());
+
+            ImGui::Text("Current Triangles: %d", currentTriangles);
+            ImGui::Text("Current Vertices:  %d", currentVertices);
+
+            ImGui::Separator();
+
+            ImGui::SliderFloat("Target Ratio", &state.simplificationRatio, 0.10f, 1.0f, "%.2f (Ratio)");
+
+            bool clickSimplify = ImGui::Button("Simplify Mesh");
+            bool releasedSlider = ImGui::IsItemDeactivatedAfterEdit();
+
+            if (clickSimplify || releasedSlider) {
+                state.triggerSimplification = true;
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Reset Mesh")) {
+                state.triggerResetMesh = true;
+            }
+        } else {
+            ImGui::TextDisabled("Select a mesh via Right-Click to enable QEM.");
+        }
+    }
+    if (ImGui::CollapsingHeader("Scene & Assets", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::InputText("OBJ File", state.objFilePath, IM_ARRAYSIZE(state.objFilePath));
+
+        if (ImGui::Button("Load New OBJ")) {
+            state.triggerLoadOBJ = true;
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Bunny")) {
+            strncpy(state.objFilePath, "../../models/stanford-bunny.obj", sizeof(state.objFilePath));
+            state.triggerLoadOBJ = true;
+        }
+    }
     if (ImGui::CollapsingHeader("Camera Info")) {
         ImGui::Text("Pos: (%.2f, %.2f, %.2f)", cam.position.x, cam.position.y, cam.position.z);
         ImGui::Text("Target: (%.2f, %.2f, %.2f)", cam.target.x, cam.target.y, cam.target.z);

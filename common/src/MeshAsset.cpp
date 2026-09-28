@@ -8,7 +8,7 @@
 #include <glad/glad.h>
 
 
-MeshAsset::MeshAsset(const MeshData &data): mesh(std::move(data)) {
+MeshAsset::MeshAsset(const MeshData &data): mesh(data), originalMesh(data) {
     setupGPU();
 }
 

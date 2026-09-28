@@ -15,6 +15,7 @@
 #include "common/HalfEdgeMesh.h"
 #include "common/MeshAsset.h"
 #include "common/MeshData.h"
+#include "common/MeshSimplifier.h"
 #include "common/RenderObject.h"
 #include "common/Scene.h"
 #include "common/Shader.h"
@@ -37,7 +38,6 @@ void triggerFastMarchingOnPick(PickResult& pick) {
 
     MeshData& meshData = pick.meshAsset->mesh;
 
-    // On-demand half-edge construction with position-based deduplication
     HalfEdgeContainer he = GeometryUtils::buildHalfEdge(meshData);
 
     std::vector<float> distances = he.compute_fast_marching_distances(pick.vertexIndex);
@@ -70,6 +70,39 @@ void triggerFastMarchingOnPick(PickResult& pick) {
 
     std::cout << "[Fast Marching] Calculado con éxito desde vértice semilla ID: "
               << pick.vertexIndex << " (Max Dist: " << maxDist << ")" << std::endl;
+}
+
+void triggerMeshSimplification(std::shared_ptr<MeshAsset>& meshAsset, float targetRatio) {
+    if (!meshAsset) return;
+
+    MeshData baseMesh = meshAsset->originalMesh;
+
+    int totalTriangles = static_cast<int>(baseMesh.indices.size() / 3);
+    int targetTriangles = static_cast<int>(totalTriangles * targetRatio);
+
+    if (targetTriangles >= totalTriangles) {
+        meshAsset->restoreOriginal();
+        return;
+    }
+
+    int trianglesToRemove = totalTriangles - targetTriangles;
+    int edgesToRemove = trianglesToRemove / 2;
+
+    HalfEdgeContainer he = GeometryUtils::buildHalfEdge(baseMesh);
+    MeshSimplifier simplifier(he);
+
+    simplifier.simplify(edgesToRemove);
+
+    MeshData simplifiedMesh = GeometryUtils::buildMeshData(he);
+    simplifiedMesh.recompute_normals();
+    simplifiedMesh.recompute_tangents();
+
+    meshAsset->mesh = simplifiedMesh;
+    meshAsset->updateGPU();
+
+    std::cout << "[QEM] Simplificado de " << totalTriangles
+              << " a " << (simplifiedMesh.indices.size() / 3)
+              << " triángulos (Ratio: " << targetRatio << ")" << std::endl;
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
@@ -174,6 +207,7 @@ int main() {
     }
     glfwMakeContextCurrent(window);
 
+    glfwSwapInterval(0);
     if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD" << std::endl;
         return -1;
@@ -202,13 +236,48 @@ int main() {
     ShadowMap shadowMap;
     shadowMap.init(2048, 2048);
 
-    s = Scene::loadOBJ("../../scenes/fireplace_room/fireplace_room.obj");
+    //s = Scene::loadOBJ("../../scenes/fireplace_room/fireplace_room.obj");
+    //s = Scene::loadOBJ("../../models/dragon.obj");
     float lastFrameTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrameTime = glfwGetTime();
         auto deltaTime = static_cast<float>(currentFrameTime - lastFrameTime);
+
         lastFrameTime = currentFrameTime;
+        if (engineState.triggerSimplification) {
+            if (engineState.lastPickResult.meshAsset) {
+                triggerMeshSimplification(
+                    engineState.lastPickResult.meshAsset,
+                    engineState.simplificationRatio
+                );
+            }
+            engineState.triggerSimplification = false;
+        }
+
+        if (engineState.triggerResetMesh) {
+            if (engineState.lastPickResult.meshAsset) {
+                engineState.lastPickResult.meshAsset->restoreOriginal();
+            }
+            engineState.triggerResetMesh = false;
+        }
+        if (engineState.triggerLoadOBJ) {
+            std::cout << "[Scene] Reemplazando escena actual con: " << engineState.objFilePath << std::endl;
+
+            engineState.hasSelection = false;
+            engineState.lastPickResult = PickResult{};
+
+            Scene newScene = Scene::loadOBJ(engineState.objFilePath);
+
+            if (!newScene.objects.empty()) {
+                s = std::move(newScene);
+                std::cout << "[Scene] Escena cargada exitosamente." << std::endl;
+            } else {
+                std::cerr << "[Scene] Error: No se pudo cargar el archivo o la escena está vacía." << std::endl;
+            }
+
+            engineState.triggerLoadOBJ = false; // Reset flag
+        }
 
         // 1. Input & Procedural Light Animation Update
         process_input(window, deltaTime);

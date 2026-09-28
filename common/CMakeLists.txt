@@ -20,6 +20,8 @@ add_library(common STATIC
     src/ShadowMap.cpp
         src/Texture.cpp
         src/Scene.cpp
+        src/MeshSimplifier.cpp
+        src/Queue.cpp
 )
 
 target_include_directories(common PUBLIC
