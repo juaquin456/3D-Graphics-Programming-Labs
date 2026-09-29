@@ -35,8 +35,6 @@ std::string replaceCharacters(const std::string& s, char c1, char c2)
     for (char& ch : tmp) {
         if (ch == c1)
             ch = c2;
-        else if (ch == c2)
-            ch = c1;
     }
     return tmp;
 }
@@ -163,18 +161,18 @@ Scene Scene::loadOBJ(const std::string& filepath) {
     std::vector<std::shared_ptr<IMaterial>> loadedMaterials;
     for (const auto& mat : materials) {
         if (!mat.diffuse_texname.empty()) {
-            std::string diffPath = (dir / replaceCharacters(mat.diffuse_texname, '\\', '/')).string();
+            std::string diffPath = (dir / replaceCharacters(mat.diffuse_texname, '\\', '/')).generic_string();
             auto diffTex = TextureCache::get(diffPath);
 
             std::shared_ptr<Texture> specTex = nullptr;
             if (!mat.specular_texname.empty()) {
-                std::string specPath = (dir / replaceCharacters(mat.specular_texname, '\\', '/')).string();
+                std::string specPath = (dir / replaceCharacters(mat.specular_texname, '\\', '/')).generic_string();
                 specTex = TextureCache::get(specPath);
             }
 
             std::shared_ptr<Texture> normTex = nullptr;
             if (!mat.bump_texname.empty()) {
-                std::string normPath = (dir / replaceCharacters(mat.bump_texname, '\\', '/')).string();
+                std::string normPath = (dir / replaceCharacters(mat.bump_texname, '\\', '/')).generic_string();
                 normTex = TextureCache::get(normPath);
             }
 
