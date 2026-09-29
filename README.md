@@ -81,3 +81,13 @@ Marching distance field calculations and selects the active sub-mesh for QEM sim
 - Calculates fundamental error quadrics $Q$ per vertex.
 - Candidate edge collapses are managed via a Min-Heap priority queue (QueueSystem) using 64-bit edge keys and Lazy Deletion for $O(1)$ edge erasures.
 - Exposed via an ImGui Target Ratio slider (0.10 to 1.00) with a Simplify Mesh trigger and a Reset Mesh button to restore the original geometry.
+
+## Gallery
+
+<img width="1283" height="718" alt="Screenshot from 2026-09-28 21-00-40" src="https://github.com/user-attachments/assets/ac98186e-2aac-43dd-a4d6-5f93bd0d586f" />
+<img width="1283" height="718" alt="Screenshot from 2026-09-28 21-01-11" src="https://github.com/user-attachments/assets/b5c66dc3-622a-4b3b-9ddd-9cc93f0725c3" />
+<img width="1283" height="718" alt="Screenshot from 2026-09-28 21-02-33" src="https://github.com/user-attachments/assets/f6f9b556-712d-47f9-ad5a-2b2056738fcd" />
+<img width="1283" height="718" alt="Screenshot from 2026-09-28 21-04-12" src="https://github.com/user-attachments/assets/a6357069-6978-4c18-ae2f-9e9f05eb8385" />
+<img width="1283" height="718" alt="Screenshot from 2026-09-28 21-04-37" src="https://github.com/user-attachments/assets/34e2acac-1db6-4a15-a20f-b14484fe0a06" />
+
+<img width="1283" height="718" alt="Screenshot from 2026-09-28 21-05-24" src="https://github.com/user-attachments/assets/3c6e6b71-f24f-47f8-b77e-4f40f64219ff" />
