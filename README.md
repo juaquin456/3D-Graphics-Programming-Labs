@@ -1,4 +1,9 @@
 # Project 1: Interactive 3D Scene Viewer & Engine
+
+
+https://github.com/user-attachments/assets/cef94706-4bd0-40d7-986b-3c48ac014f02
+
+
 A 3D scene viewer and geometric processing engine built with C++20 and Modern OpenGL (3.3+ Core Profile). The application integrates OBJ/MTL asset parsing, dynamic shadow mapping with directional lighting, mouse ray-casting for vertex picking, Half-Edge topology structures, Fast Marching geodesic distance field propagation, and QEM mesh decimation, all controlled in real-time via a Dear ImGui panel.
 
 ---
