@@ -22,10 +22,6 @@
 #include "common/Scene.h"
 #include "common/Shader.h"
 
-#if HAVE_CUDA
-#include "CudaRayTracer.h"
-#endif
-
 // -------------------------------------------------------------
 // Structure to represent a triangle in world space
 // -------------------------------------------------------------
@@ -36,21 +32,8 @@ struct Triangle {
 };
 
 // -------------------------------------------------------------
-// Compute Backend: CPU vs CUDA GPU
+// Ray-Triangle Möller-Trumbore intersection algorithm (CPU)
 // -------------------------------------------------------------
-enum class ComputeBackend {
-    CPU = 0,
-    CUDA = 1
-};
-
-ComputeBackend g_backend = ComputeBackend::CPU;
-
-#if HAVE_CUDA
-CudaRayTracer g_cudaRayTracer;
-bool g_cudaAvailable = false;
-std::string g_cudaDeviceName = "";
-#endif
-
 inline bool rayTriangleIntersect(const Ray& ray, const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, float& outT) {
     const float EPSILON = 1e-7f;
     glm::vec3 edge1 = v1 - v0;
@@ -103,6 +86,7 @@ struct DepthSettings {
 
     bool continuous = true;
     bool dirty = true;
+    bool manualTrigger = false;
     bool autoRange = true;
     float manualMin = 1.0f;
     float manualMax = 10.0f;
@@ -113,13 +97,9 @@ struct DepthSettings {
     // Diagnostic readouts
     float detectedMinDepth = 0.0f;
     float detectedMaxDepth = 1.0f;
-    double lastRenderTimeMs = 0.0;
+    double lastCpuTimeMs = 0.0;
     int totalRays = 0;
     int hitCount = 0;
-
-    // Benchmark comparison
-    double lastCpuTimeMs = 0.0;
-    double lastCudaTimeMs = 0.0;
 } g_depthSettings;
 
 // Available scenes for quick switching
@@ -144,7 +124,6 @@ char g_customScenePath[512] = "../../models/teapot.obj";
 GLuint g_depthTexture = 0;
 GLuint g_quadVAO = 0;
 GLuint g_quadVBO = 0;
-GLuint g_pbo = 0; // OpenGL Pixel Buffer Object for Zero-Copy CUDA Interop
 
 // CPU buffers
 std::vector<float> g_depthBuffer;
@@ -185,18 +164,6 @@ void rebuildWorldTriangles() {
     std::cout << "[Scene] Extracted " << g_worldTriangles.size() << " world-space triangles." << std::endl;
     std::cout << "[Scene] Bounds Min: (" << g_sceneMin.x << ", " << g_sceneMin.y << ", " << g_sceneMin.z << ")" << std::endl;
     std::cout << "[Scene] Bounds Max: (" << g_sceneMax.x << ", " << g_sceneMax.y << ", " << g_sceneMax.z << ")" << std::endl;
-
-#if HAVE_CUDA
-    if (g_cudaAvailable) {
-        std::vector<CudaTriangle> cudaTris;
-        cudaTris.reserve(g_worldTriangles.size());
-        for (const auto& tri : g_worldTriangles) {
-            cudaTris.push_back({tri.v0, tri.v1, tri.v2});
-        }
-        g_cudaRayTracer.uploadTriangles(cudaTris);
-        std::cout << "[CUDA] Uploaded " << cudaTris.size() << " triangles to GPU." << std::endl;
-    }
-#endif
 }
 
 // -------------------------------------------------------------
@@ -218,54 +185,6 @@ void frameCamera() {
 }
 
 // -------------------------------------------------------------
-// Setup OpenGL Pixel Buffer Object (PBO) for Zero-Copy CUDA Interop
-// -------------------------------------------------------------
-void setupPBO(int width, int height) {
-#if HAVE_CUDA
-    if (g_cudaAvailable) {
-        g_cudaRayTracer.unregisterPBO();
-    }
-#endif
-
-    if (g_pbo == 0) {
-        glGenBuffers(1, &g_pbo);
-    }
-
-    // Allocate GPU buffer memory for PBO (RGBA: 4 bytes per pixel)
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, g_pbo);
-    glBufferData(GL_PIXEL_UNPACK_BUFFER, width * height * 4, nullptr, GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-
-    // Reallocate texture storage
-    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-#if HAVE_CUDA
-    if (g_cudaAvailable) {
-        g_cudaRayTracer.registerPBO(g_pbo);
-    }
-#endif
-}
-
-// -------------------------------------------------------------
-// Update resolution according to index
-// -------------------------------------------------------------
-void applyResolutionIndex(int idx) {
-    g_depthSettings.resolutionIndex = idx;
-    switch (idx) {
-        case 0: g_depthSettings.renderWidth = 160; g_depthSettings.renderHeight = 90;  break;
-        case 1: g_depthSettings.renderWidth = 320; g_depthSettings.renderHeight = 180; break;
-        case 2: g_depthSettings.renderWidth = 480; g_depthSettings.renderHeight = 270; break;
-        case 3: g_depthSettings.renderWidth = 640; g_depthSettings.renderHeight = 360; break;
-        case 4: g_depthSettings.renderWidth = 1280; g_depthSettings.renderHeight = 720; break;
-        default: g_depthSettings.renderWidth = 320; g_depthSettings.renderHeight = 180; break;
-    }
-    setupPBO(g_depthSettings.renderWidth, g_depthSettings.renderHeight);
-    g_depthSettings.dirty = true;
-}
-
-// -------------------------------------------------------------
 // Load a scene from file path
 // -------------------------------------------------------------
 void loadScene(const std::string& filepath) {
@@ -281,10 +200,39 @@ void loadScene(const std::string& filepath) {
 }
 
 // -------------------------------------------------------------
-// CPU Ray Shooting Kernel
+// Update resolution according to index
 // -------------------------------------------------------------
-void executeCpuRayCast(int width, int height) {
+void applyResolutionIndex(int idx) {
+    g_depthSettings.resolutionIndex = idx;
+    switch (idx) {
+        case 0: g_depthSettings.renderWidth = 160; g_depthSettings.renderHeight = 90;  break;
+        case 1: g_depthSettings.renderWidth = 320; g_depthSettings.renderHeight = 180; break;
+        case 2: g_depthSettings.renderWidth = 480; g_depthSettings.renderHeight = 270; break;
+        case 3: g_depthSettings.renderWidth = 640; g_depthSettings.renderHeight = 360; break;
+        case 4: g_depthSettings.renderWidth = 1280; g_depthSettings.renderHeight = 720; break;
+        default: g_depthSettings.renderWidth = 320; g_depthSettings.renderHeight = 180; break;
+    }
+
+    // Reallocate texture storage
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, g_depthSettings.renderWidth, g_depthSettings.renderHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    g_depthSettings.dirty = true;
+}
+
+// -------------------------------------------------------------
+// CPU Ray Shooting & Depth Map Generation
+// -------------------------------------------------------------
+void renderDepthMapCPU() {
     auto startTime = std::chrono::high_resolution_clock::now();
+
+    int width = g_depthSettings.renderWidth;
+    int height = g_depthSettings.renderHeight;
+    int numPixels = width * height;
+
+    g_depthSettings.totalRays = numPixels;
+    g_depthBuffer.assign(numPixels, std::numeric_limits<float>::infinity());
 
     glm::mat4 viewMatrix = cam.getViewMatrix();
     glm::mat4 projMatrix = cam.getProjectionMatrix();
@@ -296,6 +244,7 @@ void executeCpuRayCast(int width, int height) {
     const size_t numTriangles = g_worldTriangles.size();
     const Triangle* triData = g_worldTriangles.data();
 
+    // 1. Primary Ray Cast for each pixel (parallelized with OpenMP)
     #pragma omp parallel for schedule(dynamic, 8)
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
@@ -331,11 +280,9 @@ void executeCpuRayCast(int width, int height) {
 
     auto endTime = std::chrono::high_resolution_clock::now();
     double cpuMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
-    g_depthSettings.lastRenderTimeMs = cpuMs;
     g_depthSettings.lastCpuTimeMs = cpuMs;
 
-    // Compute minimum and maximum hit depths
-    int numPixels = width * height;
+    // 2. Compute minimum and maximum hit depths
     float minHit = std::numeric_limits<float>::infinity();
     float maxHit = -std::numeric_limits<float>::infinity();
     int hits = 0;
@@ -357,14 +304,14 @@ void executeCpuRayCast(int width, int height) {
     g_depthSettings.detectedMaxDepth = maxHit;
     g_depthSettings.hitCount = hits;
 
-    // Map depth values to pixel intensities in [0:1] (RGBA)
+    // 3. Map depth values to pixel intensities in [0:1] (RGB)
     float effMin = g_depthSettings.autoRange ? minHit : g_depthSettings.manualMin;
     float effMax = g_depthSettings.autoRange ? maxHit : g_depthSettings.manualMax;
     if (effMax - effMin < 1e-6f) {
         effMax = effMin + 1.0f;
     }
 
-    g_pixelBuffer.resize(numPixels * 4);
+    g_pixelBuffer.resize(numPixels * 3);
 
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < numPixels; ++i) {
@@ -385,90 +332,20 @@ void executeCpuRayCast(int width, int height) {
         }
 
         uint8_t byteVal = static_cast<uint8_t>(glm::clamp(intensity * 255.0f, 0.0f, 255.0f));
-        g_pixelBuffer[i * 4 + 0] = byteVal;
-        g_pixelBuffer[i * 4 + 1] = byteVal;
-        g_pixelBuffer[i * 4 + 2] = byteVal;
-        g_pixelBuffer[i * 4 + 3] = 255;
+        g_pixelBuffer[i * 3 + 0] = byteVal;
+        g_pixelBuffer[i * 3 + 1] = byteVal;
+        g_pixelBuffer[i * 3 + 2] = byteVal;
     }
 
-    // Upload CPU pixel buffer directly to OpenGL Texture
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0); // Ensure PBO is unbound
+    // 4. Upload CPU pixel buffer to OpenGL Texture
     glBindTexture(GL_TEXTURE_2D, g_depthTexture);
     GLint filter = g_depthSettings.linearFiltering ? GL_LINEAR : GL_NEAREST;
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, g_pixelBuffer.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, g_pixelBuffer.data());
     glBindTexture(GL_TEXTURE_2D, 0);
-}
-
-// -------------------------------------------------------------
-// Unified Depth Map Renderer
-// -------------------------------------------------------------
-void renderDepthMap() {
-    int width = g_depthSettings.renderWidth;
-    int height = g_depthSettings.renderHeight;
-    int numPixels = width * height;
-    g_depthSettings.totalRays = numPixels;
-
-    bool usedCudaZeroCopy = false;
-
-#if HAVE_CUDA
-    if (g_backend == ComputeBackend::CUDA && g_cudaAvailable) {
-        glm::mat4 viewMatrix = cam.getViewMatrix();
-        glm::mat4 projMatrix = cam.getProjectionMatrix();
-        glm::mat4 invProj = glm::inverse(projMatrix);
-        glm::mat4 invView = glm::inverse(viewMatrix);
-
-        double cudaMs = 0.0;
-        float detectedMin = 0.0f, detectedMax = 1.0f;
-        int hitCount = 0;
-
-        bool success = g_cudaRayTracer.renderDepthToPBO(
-            invProj,
-            invView,
-            cam.position,
-            cam.getFront(),
-            width,
-            height,
-            g_depthSettings.usePlanarDepth,
-            g_depthSettings.autoRange,
-            g_depthSettings.manualMin,
-            g_depthSettings.manualMax,
-            g_depthSettings.invertDepth,
-            detectedMin,
-            detectedMax,
-            hitCount,
-            cudaMs
-        );
-
-        if (success) {
-            g_depthSettings.lastRenderTimeMs = cudaMs;
-            g_depthSettings.lastCudaTimeMs = cudaMs;
-            g_depthSettings.detectedMinDepth = detectedMin;
-            g_depthSettings.detectedMaxDepth = detectedMax;
-            g_depthSettings.hitCount = hitCount;
-
-            // Direct GPU VRAM to Texture DMA transfer (0 CPU copies)
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, g_pbo);
-            glBindTexture(GL_TEXTURE_2D, g_depthTexture);
-            GLint filter = g_depthSettings.linearFiltering ? GL_LINEAR : GL_NEAREST;
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, (void*)0);
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-            glBindTexture(GL_TEXTURE_2D, 0);
-
-            usedCudaZeroCopy = true;
-        } else {
-            std::cerr << "[CUDA] Warning: Render failed, falling back to CPU." << std::endl;
-        }
-    }
-#endif
-
-    if (!usedCudaZeroCopy) {
-        g_depthBuffer.assign(numPixels, std::numeric_limits<float>::infinity());
-        executeCpuRayCast(width, height);
-    }
 
     g_depthSettings.dirty = false;
 }
@@ -557,16 +434,10 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     if (action == GLFW_PRESS) {
         if (key == GLFW_KEY_SPACE) {
             g_depthSettings.continuous = !g_depthSettings.continuous;
-            g_depthSettings.dirty = true;
+            if (g_depthSettings.continuous) g_depthSettings.dirty = true;
         } else if (key == GLFW_KEY_R) {
+            g_depthSettings.manualTrigger = true;
             g_depthSettings.dirty = true;
-        } else if (key == GLFW_KEY_B) {
-#if HAVE_CUDA
-            if (g_cudaAvailable) {
-                g_backend = (g_backend == ComputeBackend::CPU) ? ComputeBackend::CUDA : ComputeBackend::CPU;
-                g_depthSettings.dirty = true;
-            }
-#endif
         } else if (key == GLFW_KEY_I) {
             g_depthSettings.invertDepth = !g_depthSettings.invertDepth;
             g_depthSettings.dirty = true;
@@ -631,62 +502,25 @@ void renderGui() {
     ImGui::NewFrame();
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(430, 680), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(410, 640), ImGuiCond_FirstUseEver);
 
-    if (ImGui::Begin("Task 13: Shooting Rays (Depth Map)", &showGui)) {
+    if (ImGui::Begin("Task 13: CPU Shooting Rays (Depth Map)", &showGui)) {
         ImGuiIO& io = ImGui::GetIO();
 
-        // 1. Compute Backend Selection (CPU vs CUDA Zero-Copy)
-        if (ImGui::CollapsingHeader("Compute Backend", ImGuiTreeNodeFlags_DefaultOpen)) {
-            int currentBackendIdx = (g_backend == ComputeBackend::CUDA) ? 1 : 0;
-
-            if (ImGui::RadioButton("CPU (Multithreaded OpenMP)", currentBackendIdx == 0)) {
-                g_backend = ComputeBackend::CPU;
-                g_depthSettings.dirty = true;
-            }
-
-#if HAVE_CUDA
-            if (g_cudaAvailable) {
-                ImGui::SameLine();
-                if (ImGui::RadioButton("CUDA (Zero-Copy PBO)", currentBackendIdx == 1)) {
-                    g_backend = ComputeBackend::CUDA;
-                    g_depthSettings.dirty = true;
-                }
-                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Device: %s", g_cudaDeviceName.c_str());
-            } else {
-                ImGui::SameLine();
-                ImGui::TextDisabled("CUDA (Not Available)");
-            }
-#else
-            ImGui::SameLine();
-            ImGui::TextDisabled("CUDA (Not Compiled)");
-#endif
-            if (g_backend == ComputeBackend::CUDA) {
-                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.5f, 1.0f), "[Interop] Zero-Copy OpenGL PBO: ACTIVE");
-                ImGui::TextDisabled("-> 0 CPU copies. Direct CUDA GPU VRAM to Texture.");
-            } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[CPU Mode] OpenMP 12 Cores -> glTexSubImage2D");
-            }
+        // 1. CPU Backend Status
+        if (ImGui::CollapsingHeader("Execution Engine", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Engine: CPU Multithreaded (OpenMP)");
+            ImGui::TextDisabled("Cast primary rays into scene on CPU, upload to texture");
             ImGui::Separator();
         }
 
         // 2. Performance and Ray Metrics
         if (ImGui::CollapsingHeader("Ray Casting Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::Text("OpenGL Window: %.1f FPS (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "CPU Ray Cast Time: %.2f ms", g_depthSettings.lastCpuTimeMs);
 
-            if (g_backend == ComputeBackend::CUDA) {
-                ImGui::TextColored(ImVec4(0.2f, 0.9f, 1.0f, 1.0f), "CUDA GPU Kernel Time: %.2f ms", g_depthSettings.lastRenderTimeMs);
-            } else {
-                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "CPU Ray Cast Time: %.2f ms", g_depthSettings.lastRenderTimeMs);
-            }
-
-            if (g_depthSettings.lastCpuTimeMs > 0.0 && g_depthSettings.lastCudaTimeMs > 0.0) {
-                double speedup = g_depthSettings.lastCpuTimeMs / g_depthSettings.lastCudaTimeMs;
-                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "CUDA Speedup vs CPU: %.1fx faster", speedup);
-            }
-
-            double mrays = (g_depthSettings.lastRenderTimeMs > 0.0) 
-                ? (g_depthSettings.totalRays / (g_depthSettings.lastRenderTimeMs * 1000.0)) 
+            double mrays = (g_depthSettings.lastCpuTimeMs > 0.0) 
+                ? (g_depthSettings.totalRays / (g_depthSettings.lastCpuTimeMs * 1000.0)) 
                 : 0.0;
             ImGui::Text("Throughput: %.2f MRays/sec", mrays);
             ImGui::Text("Rays Cast: %d (%dx%d)", g_depthSettings.totalRays, g_depthSettings.renderWidth, g_depthSettings.renderHeight);
@@ -698,6 +532,7 @@ void renderGui() {
         // 3. Render Trigger and Resolution
         if (ImGui::CollapsingHeader("Resolution & Execution", ImGuiTreeNodeFlags_DefaultOpen)) {
             if (ImGui::Button("Render Primary Rays Now (R)", ImVec2(-1, 30))) {
+                g_depthSettings.manualTrigger = true;
                 g_depthSettings.dirty = true;
             }
 
@@ -783,7 +618,6 @@ void renderGui() {
             ImGui::BulletText("Mouse Scroll: Zoom Camera");
             ImGui::BulletText("W, A, S, D: Move Camera Position");
             ImGui::BulletText("Space: Toggle Real-time Ray Shooting");
-            ImGui::BulletText("B: Switch Backend (CPU <-> CUDA Zero-Copy)");
             ImGui::BulletText("R: Trigger Ray Casting");
             ImGui::BulletText("I: Invert Depth Grayscale");
             ImGui::BulletText("M: Toggle Ray Distance vs Z-depth");
@@ -811,14 +645,14 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Task 13: Shooting Rays - Depth Map (CPU & CUDA PBO Zero-Copy)", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Task 13: CPU Shooting Rays (Depth Map)", NULL, NULL);
     if (!window) {
         std::cerr << "[GLFW] Error: Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return -1;
     }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(0); // Uncapped framerate for maximum responsiveness
+    glfwSwapInterval(0); // Uncapped framerate
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "[GLAD] Error: Failed to initialize GLAD" << std::endl;
@@ -844,25 +678,8 @@ int main(int argc, char** argv) {
     setupScreenQuad();
     Shader screenShader("../../shaders/screen_quad.vert", "../../shaders/screen_quad.frag");
 
-    // Check CUDA availability
-#if HAVE_CUDA
-    g_cudaAvailable = CudaRayTracer::isAvailable();
-    if (g_cudaAvailable) {
-        g_cudaDeviceName = CudaRayTracer::getDeviceName();
-        std::cout << "[CUDA] Initialized GPU: " << g_cudaDeviceName << std::endl;
-        // Default to CUDA for maximum performance
-        g_backend = ComputeBackend::CUDA;
-    } else {
-        std::cout << "[CUDA] No CUDA device detected, defaulting to CPU." << std::endl;
-        g_backend = ComputeBackend::CPU;
-    }
-#else
-    std::cout << "[App] Built in CPU-only mode." << std::endl;
-    g_backend = ComputeBackend::CPU;
-#endif
-
-    // Setup Pixel Buffer Object (PBO)
-    setupPBO(g_depthSettings.renderWidth, g_depthSettings.renderHeight);
+    // Apply default resolution
+    applyResolutionIndex(g_depthSettings.resolutionIndex);
 
     // Load initial scene
     std::string initialScene = "../../models/teapot.obj";
@@ -873,8 +690,8 @@ int main(int argc, char** argv) {
     }
     loadScene(initialScene);
 
-    // Initial ray cast
-    renderDepthMap();
+    // Initial CPU ray cast
+    renderDepthMapCPU();
 
     float lastFrameTime = static_cast<float>(glfwGetTime());
 
@@ -886,11 +703,16 @@ int main(int argc, char** argv) {
 
         process_input(window, deltaTime);
 
-        // Perform ray shooting if real-time continuous mode is active or settings changed
+        bool shouldRender = false;
         if (g_depthSettings.continuous && g_depthSettings.dirty) {
-            renderDepthMap();
-        } else if (!g_depthSettings.continuous && g_depthSettings.dirty) {
-            renderDepthMap();
+            shouldRender = true;
+        } else if (!g_depthSettings.continuous && g_depthSettings.manualTrigger) {
+            shouldRender = true;
+            g_depthSettings.manualTrigger = false;
+        }
+
+        if (shouldRender) {
+            renderDepthMapCPU();
         }
 
         // Render OpenGL Screen Quad with Depth Texture
@@ -920,13 +742,6 @@ int main(int argc, char** argv) {
     glDeleteVertexArrays(1, &g_quadVAO);
     glDeleteBuffers(1, &g_quadVBO);
     glDeleteTextures(1, &g_depthTexture);
-    if (g_pbo != 0) {
-        glDeleteBuffers(1, &g_pbo);
-    }
-
-#if HAVE_CUDA
-    g_cudaRayTracer.cleanup();
-#endif
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

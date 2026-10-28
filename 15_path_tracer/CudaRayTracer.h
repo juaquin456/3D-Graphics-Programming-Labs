@@ -36,7 +36,7 @@ struct CudaLight {
 };
 
 // -------------------------------------------------------------
-// CUDA Ray Tracer (Depth 1 with Materials & Zero-Copy OpenGL PBO)
+// CUDA Ray Tracer (Diffuse Surfaces + Shadows + Zero-Copy PBO)
 // -------------------------------------------------------------
 class CudaRayTracer {
 public:
@@ -53,7 +53,7 @@ public:
     bool registerPBO(GLuint pbo);
     void unregisterPBO();
 
-    // 1-Depth Ray Tracer: Primary rays + Materials + Direct Blinn-Phong + Shadows
+    // Ray Tracer: Primary rays + Diffuse Materials + Direct Shadows
     bool renderRayTraceToPBO(
         const glm::mat4& invProj,
         const glm::mat4& invView,
@@ -63,7 +63,8 @@ public:
         bool enableShadows,
         bool useSmoothNormals,
         int overrideMaterialIndex, // -1: use scene material, >= 0: preset override
-        double& outKernelTimeMs
+        bool diffuseOnly,
+        double& outKernelTimeSec
     );
 
     void cleanup();

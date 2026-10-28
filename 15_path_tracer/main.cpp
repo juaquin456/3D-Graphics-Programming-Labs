@@ -18,6 +18,10 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "common/Camera.h"
 #include "common/Scene.h"
 #include "common/Shader.h"
@@ -33,7 +37,7 @@ int SCR_HEIGHT = 720;
 Camera cam;
 Scene scene;
 
-// Scene geometric & material data uploaded to GPU
+// Scene geometric & material data
 std::vector<CudaTriangle> g_worldTriangles;
 std::vector<CudaMaterial> g_sceneMaterials;
 glm::vec3 g_sceneMin{0.0f};
@@ -53,8 +57,18 @@ std::string g_cudaDeviceName = "";
 CudaLight g_light;
 bool g_animateLight = false;
 
+// CPU Framebuffer
+std::vector<unsigned char> g_cpuFramebuffer;
+
 // Ray tracer render settings
+enum BackendMode {
+    BACKEND_CUDA_GPU = 0,
+    BACKEND_OPENMP_CPU = 1
+};
+
 struct RayTraceSettings {
+    BackendMode backend = BACKEND_CUDA_GPU;
+
     int resolutionIndex = 1; // 0: 160x90, 1: 320x180, 2: 480x270, 3: 640x360, 4: 1280x720
     int renderWidth = 320;
     int renderHeight = 180;
@@ -63,11 +77,19 @@ struct RayTraceSettings {
     bool dirty = true;
     bool enableShadows = true;
     bool useSmoothNormals = true;
+    bool diffuseOnly = true; // All surfaces diffuse (Lambertian)
     int overrideMaterialIndex = -1; // -1: use scene material from OBJ; >= 0: preset override
 
-    // Diagnostic readouts
-    double lastKernelTimeMs = 0.0;
+    // Active execution time (in SECONDS)
+    double lastExecutionTimeSec = 0.0;
     int totalRays = 0;
+
+    // Benchmark comparison (CPU vs GPU in SECONDS)
+    bool hasBenchmark = false;
+    double benchmarkCpuSec = 0.0;
+    double benchmarkGpuSec = 0.0;
+    double benchmarkSpeedup = 0.0;
+    int benchmarkRays = 0;
 } g_settings;
 
 // Preset material names and definitions
@@ -102,10 +124,185 @@ int g_selectedSceneIndex = 0;
 char g_customScenePath[512] = "../../models/teapot.obj";
 
 // OpenGL resources for displaying rendered ray-traced image
-GLuint g_depthTexture = 0;
+GLuint g_renderTexture = 0;
 GLuint g_quadVAO = 0;
 GLuint g_quadVBO = 0;
 GLuint g_pbo = 0; // OpenGL Pixel Buffer Object for Zero-Copy CUDA Interop
+
+// -------------------------------------------------------------
+// CPU Möller-Trumbore Ray-Triangle Intersection
+// -------------------------------------------------------------
+inline bool rayTriangleIntersectCPU(
+    const glm::vec3& orig,
+    const glm::vec3& dir,
+    const CudaTriangle& tri,
+    float& outT,
+    float& outU,
+    float& outV
+) {
+    const float EPSILON = 1e-7f;
+    glm::vec3 edge1 = tri.v1 - tri.v0;
+    glm::vec3 edge2 = tri.v2 - tri.v0;
+    glm::vec3 h = glm::cross(dir, edge2);
+    float a = glm::dot(edge1, h);
+
+    if (a > -EPSILON && a < EPSILON) return false;
+
+    float f = 1.0f / a;
+    glm::vec3 s = orig - tri.v0;
+    float u = f * glm::dot(s, h);
+    if (u < 0.0f || u > 1.0f) return false;
+
+    glm::vec3 q = glm::cross(s, edge1);
+    float v = f * glm::dot(dir, q);
+    if (v < 0.0f || u + v > 1.0f) return false;
+
+    float t = f * glm::dot(edge2, q);
+    if (t > EPSILON) {
+        outT = t;
+        outU = u;
+        outV = v;
+        return true;
+    }
+    return false;
+}
+
+// -------------------------------------------------------------
+// CPU Path Tracer Execution (OpenMP Multithreaded)
+// -------------------------------------------------------------
+double renderRayTraceCPU(
+    const std::vector<CudaTriangle>& triangles,
+    const std::vector<CudaMaterial>& materials,
+    const glm::mat4& invProj,
+    const glm::mat4& invView,
+    const glm::vec3& camPos,
+    const CudaLight& light,
+    int width, int height,
+    bool enableShadows,
+    bool useSmoothNormals,
+    int overrideMaterialIndex,
+    bool diffuseOnly,
+    unsigned char* outPixels
+) {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    int numTriangles = static_cast<int>(triangles.size());
+    int numMaterials = static_cast<int>(materials.size());
+
+    #pragma omp parallel for schedule(dynamic, 8)
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            float ndcX = (2.0f * (static_cast<float>(x) + 0.5f)) / static_cast<float>(width) - 1.0f;
+            float ndcY = (2.0f * (static_cast<float>(y) + 0.5f)) / static_cast<float>(height) - 1.0f;
+
+            glm::vec4 clipCoords(ndcX, ndcY, -1.0f, 1.0f);
+            glm::vec4 eyeCoords = invProj * clipCoords;
+            eyeCoords = glm::vec4(eyeCoords.x, eyeCoords.y, -1.0f, 0.0f);
+            glm::vec3 rayDir = glm::normalize(glm::vec3(invView * eyeCoords));
+
+            const float EPSILON = 1e-7f;
+            float closestT = 1e30f;
+            int hitTriIdx = -1;
+            float hitU = 0.0f, hitV = 0.0f;
+
+            // 1. Primary Ray
+            for (int t = 0; t < numTriangles; ++t) {
+                float dist, u, v;
+                if (rayTriangleIntersectCPU(camPos, rayDir, triangles[t], dist, u, v)) {
+                    if (dist > EPSILON && dist < closestT) {
+                        closestT = dist;
+                        hitTriIdx = t;
+                        hitU = u;
+                        hitV = v;
+                    }
+                }
+            }
+
+            int pixelIdx = (y * width + x) * 4;
+
+            if (hitTriIdx == -1) {
+                float tSky = 0.5f * (rayDir.y + 1.0f);
+                glm::vec3 skyColor = glm::mix(glm::vec3(0.08f, 0.10f, 0.15f), glm::vec3(0.20f, 0.24f, 0.35f), tSky);
+                outPixels[pixelIdx + 0] = static_cast<unsigned char>(glm::clamp(skyColor.r, 0.0f, 1.0f) * 255.0f);
+                outPixels[pixelIdx + 1] = static_cast<unsigned char>(glm::clamp(skyColor.g, 0.0f, 1.0f) * 255.0f);
+                outPixels[pixelIdx + 2] = static_cast<unsigned char>(glm::clamp(skyColor.b, 0.0f, 1.0f) * 255.0f);
+                outPixels[pixelIdx + 3] = 255;
+                continue;
+            }
+
+            const CudaTriangle& hitTri = triangles[hitTriIdx];
+            glm::vec3 hitPoint = camPos + closestT * rayDir;
+
+            glm::vec3 N;
+            if (useSmoothNormals) {
+                float w = 1.0f - hitU - hitV;
+                N = glm::normalize(w * hitTri.n0 + hitU * hitTri.n1 + hitV * hitTri.n2);
+            } else {
+                N = glm::normalize(glm::cross(hitTri.v1 - hitTri.v0, hitTri.v2 - hitTri.v0));
+            }
+
+            if (glm::dot(N, -rayDir) < 0.0f) {
+                N = -N;
+            }
+
+            int matId = hitTri.materialId;
+            if (overrideMaterialIndex >= 0 && overrideMaterialIndex < numMaterials) {
+                matId = overrideMaterialIndex;
+            }
+            if (matId < 0 || matId >= numMaterials) {
+                matId = 0;
+            }
+            const CudaMaterial& mat = materials[matId];
+
+            glm::vec3 toLight = light.position - hitPoint;
+            float distToLight = glm::length(toLight);
+            glm::vec3 L = glm::normalize(toLight);
+
+            // 2. Shadow Ray
+            float shadowFactor = 1.0f;
+            if (enableShadows) {
+                glm::vec3 shadowOrig = hitPoint + N * 1e-3f;
+                for (int s = 0; s < numTriangles; ++s) {
+                    float sDist, su, sv;
+                    if (rayTriangleIntersectCPU(shadowOrig, L, triangles[s], sDist, su, sv)) {
+                        if (sDist > 1e-4f && sDist < distToLight) {
+                            shadowFactor = 0.0f;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            glm::vec3 ambient = mat.Ka * light.ambient;
+            float nDotL = std::max(glm::dot(N, L), 0.0f);
+            glm::vec3 diffuse = mat.Kd * light.diffuse * nDotL;
+
+            glm::vec3 finalColor;
+            if (diffuseOnly) {
+                // All surfaces diffuse (Lambertian model)
+                finalColor = ambient + shadowFactor * diffuse;
+            } else {
+                // Diffuse + Specular
+                glm::vec3 V = glm::normalize(-rayDir);
+                glm::vec3 H = glm::normalize(L + V);
+                float nDotH = std::max(glm::dot(N, H), 0.0f);
+                float specFactor = (nDotL > 0.0f && mat.shininess > 0.0f) ? std::pow(nDotH, mat.shininess) : 0.0f;
+                glm::vec3 specular = mat.Ks * light.specular * specFactor;
+                finalColor = ambient + shadowFactor * (diffuse + specular);
+            }
+
+            finalColor = glm::clamp(finalColor, 0.0f, 1.0f);
+            outPixels[pixelIdx + 0] = static_cast<unsigned char>(finalColor.r * 255.0f);
+            outPixels[pixelIdx + 1] = static_cast<unsigned char>(finalColor.g * 255.0f);
+            outPixels[pixelIdx + 2] = static_cast<unsigned char>(finalColor.b * 255.0f);
+            outPixels[pixelIdx + 3] = 255;
+        }
+    }
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsedSec = endTime - startTime;
+    return elapsedSec.count(); // Return in seconds
+}
 
 // -------------------------------------------------------------
 // Pre-extract world-space triangles, vertex normals, & materials
@@ -116,7 +313,7 @@ void rebuildWorldScene() {
 
     glm::mat4 sceneModel = scene.getModelMatrix();
 
-    // Default fallback material (White Plastic)
+    // Default fallback material (White Diffuse)
     CudaMaterial defaultMat;
     defaultMat.Ka = glm::vec3(0.05f, 0.05f, 0.05f);
     defaultMat.Kd = glm::vec3(0.85f, 0.85f, 0.85f);
@@ -210,8 +407,7 @@ void rebuildWorldScene() {
     // Upload to GPU
     if (g_cudaAvailable) {
         g_cudaRayTracer.uploadScene(g_worldTriangles, g_sceneMaterials);
-        std::cout << "[CUDA] Uploaded " << g_worldTriangles.size() << " triangles & " 
-                  << g_sceneMaterials.size() << " materials to GPU." << std::endl;
+        std::cout << "[CUDA] Uploaded scene to GPU." << std::endl;
     }
 }
 
@@ -255,9 +451,12 @@ void setupPBO(int width, int height) {
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
     // Reallocate texture storage
-    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glBindTexture(GL_TEXTURE_2D, g_renderTexture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    // Reallocate CPU Framebuffer
+    g_cpuFramebuffer.resize(width * height * 4, 0);
 
     if (g_cudaAvailable) {
         g_cudaRayTracer.registerPBO(g_pbo);
@@ -297,29 +496,120 @@ void loadScene(const std::string& filepath) {
 }
 
 // -------------------------------------------------------------
-// CUDA Ray Tracer Execution (Direct VRAM Write via PBO)
+// Ray Tracer Execution (CPU or GPU based on settings)
 // -------------------------------------------------------------
 void renderRayTrace() {
     int width = g_settings.renderWidth;
     int height = g_settings.renderHeight;
     g_settings.totalRays = width * height;
 
-    if (!g_cudaAvailable) return;
-
     glm::mat4 viewMatrix = cam.getViewMatrix();
     glm::mat4 projMatrix = cam.getProjectionMatrix();
     glm::mat4 invProj = glm::inverse(projMatrix);
     glm::mat4 invView = glm::inverse(viewMatrix);
-
-    double cudaMs = 0.0;
 
     int overrideIdx = -1;
     if (g_selectedMaterialPreset > 0) {
         overrideIdx = g_presetMaterialBaseIndex + (g_selectedMaterialPreset - 1);
     }
 
-    // Zero-Copy CUDA Ray Tracing directly into the OpenGL PBO
-    bool success = g_cudaRayTracer.renderRayTraceToPBO(
+    if (g_settings.backend == BACKEND_CUDA_GPU && g_cudaAvailable) {
+        // GPU (CUDA Zero-Copy PBO)
+        double cudaSec = 0.0;
+        bool success = g_cudaRayTracer.renderRayTraceToPBO(
+            invProj,
+            invView,
+            cam.position,
+            g_light,
+            width,
+            height,
+            g_settings.enableShadows,
+            g_settings.useSmoothNormals,
+            overrideIdx,
+            g_settings.diffuseOnly,
+            cudaSec
+        );
+
+        if (success) {
+            g_settings.lastExecutionTimeSec = cudaSec;
+
+            // Direct GPU VRAM to Texture DMA transfer (0 CPU copies)
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, g_pbo);
+            glBindTexture(GL_TEXTURE_2D, g_renderTexture);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, (void*)0);
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+    } else {
+        // CPU (OpenMP Multithreaded)
+        double cpuSec = renderRayTraceCPU(
+            g_worldTriangles,
+            g_sceneMaterials,
+            invProj,
+            invView,
+            cam.position,
+            g_light,
+            width,
+            height,
+            g_settings.enableShadows,
+            g_settings.useSmoothNormals,
+            overrideIdx,
+            g_settings.diffuseOnly,
+            g_cpuFramebuffer.data()
+        );
+
+        g_settings.lastExecutionTimeSec = cpuSec;
+
+        // Upload CPU Framebuffer to OpenGL Texture
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glBindTexture(GL_TEXTURE_2D, g_renderTexture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, g_cpuFramebuffer.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    g_settings.dirty = false;
+}
+
+// -------------------------------------------------------------
+// Run Back-to-Back Performance Benchmark (CPU vs GPU)
+// -------------------------------------------------------------
+void runBenchmark() {
+    int width = g_settings.renderWidth;
+    int height = g_settings.renderHeight;
+    g_settings.benchmarkRays = width * height;
+
+    glm::mat4 viewMatrix = cam.getViewMatrix();
+    glm::mat4 projMatrix = cam.getProjectionMatrix();
+    glm::mat4 invProj = glm::inverse(projMatrix);
+    glm::mat4 invView = glm::inverse(viewMatrix);
+
+    int overrideIdx = -1;
+    if (g_selectedMaterialPreset > 0) {
+        overrideIdx = g_presetMaterialBaseIndex + (g_selectedMaterialPreset - 1);
+    }
+
+    // 1. Measure GPU Time (Seconds)
+    double gpuSec = 0.0;
+    if (g_cudaAvailable) {
+        g_cudaRayTracer.renderRayTraceToPBO(
+            invProj,
+            invView,
+            cam.position,
+            g_light,
+            width,
+            height,
+            g_settings.enableShadows,
+            g_settings.useSmoothNormals,
+            overrideIdx,
+            g_settings.diffuseOnly,
+            gpuSec
+        );
+    }
+
+    // 2. Measure CPU Time (Seconds)
+    double cpuSec = renderRayTraceCPU(
+        g_worldTriangles,
+        g_sceneMaterials,
         invProj,
         invView,
         cam.position,
@@ -329,23 +619,28 @@ void renderRayTrace() {
         g_settings.enableShadows,
         g_settings.useSmoothNormals,
         overrideIdx,
-        cudaMs
+        g_settings.diffuseOnly,
+        g_cpuFramebuffer.data()
     );
 
-    if (success) {
-        g_settings.lastKernelTimeMs = cudaMs;
+    g_settings.benchmarkGpuSec = gpuSec;
+    g_settings.benchmarkCpuSec = cpuSec;
+    g_settings.benchmarkSpeedup = (gpuSec > 1e-8) ? (cpuSec / gpuSec) : 0.0;
+    g_settings.hasBenchmark = true;
 
-        // Direct GPU VRAM to Texture DMA transfer (0 CPU copies)
+    // Refresh display with latest result
+    if (g_settings.backend == BACKEND_CUDA_GPU && g_cudaAvailable) {
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, g_pbo);
-        glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+        glBindTexture(GL_TEXTURE_2D, g_renderTexture);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, (void*)0);
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
         glBindTexture(GL_TEXTURE_2D, 0);
     } else {
-        std::cerr << "[CUDA] Warning: Ray trace kernel execution failed." << std::endl;
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glBindTexture(GL_TEXTURE_2D, g_renderTexture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, g_cpuFramebuffer.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
-
-    g_settings.dirty = false;
 }
 
 // -------------------------------------------------------------
@@ -445,6 +740,8 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             frameCamera();
         } else if (key == GLFW_KEY_H) {
             showGui = !showGui;
+        } else if (key == GLFW_KEY_B) {
+            runBenchmark();
         } else if (key >= GLFW_KEY_1 && key <= GLFW_KEY_5) {
             applyResolutionIndex(key - GLFW_KEY_1);
         }
@@ -481,8 +778,8 @@ void setupScreenQuad() {
 
     glBindVertexArray(0);
 
-    glGenTextures(1, &g_depthTexture);
-    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glGenTextures(1, &g_renderTexture);
+    glBindTexture(GL_TEXTURE_2D, g_renderTexture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -499,29 +796,75 @@ void renderGui() {
     ImGui::NewFrame();
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(430, 680), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(460, 720), ImGuiCond_FirstUseEver);
 
-    if (ImGui::Begin("Task 13.1: CUDA Ray Tracer (Materials & Shadows)", &showGui)) {
+    if (ImGui::Begin("Lab 15: Simple Path Tracer (Diffuse & Shadows)", &showGui)) {
         ImGuiIO& io = ImGui::GetIO();
 
-        // 1. Ray Tracing Performance & GPU Engine
-        if (ImGui::CollapsingHeader("GPU Ray Tracer Status", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Text("OpenGL Window: %.1f FPS (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
-            ImGui::TextColored(ImVec4(0.2f, 0.9f, 1.0f, 1.0f), "CUDA Kernel: %.2f ms", g_settings.lastKernelTimeMs);
-            ImGui::Text("GPU Device: %s", g_cudaDeviceName.c_str());
+        // 1. Backend Selection (CPU vs GPU)
+        if (ImGui::CollapsingHeader("Execution Backend (CPU vs GPU)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            int currentBackend = static_cast<int>(g_settings.backend);
+            if (ImGui::RadioButton("GPU (CUDA Zero-Copy PBO)", &currentBackend, BACKEND_CUDA_GPU)) {
+                g_settings.backend = BACKEND_CUDA_GPU;
+                g_settings.dirty = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("CPU (OpenMP Multithreaded)", &currentBackend, BACKEND_OPENMP_CPU)) {
+                g_settings.backend = BACKEND_OPENMP_CPU;
+                g_settings.dirty = true;
+            }
 
-            double mrays = (g_settings.lastKernelTimeMs > 0.0) 
-                ? (g_settings.totalRays / (g_settings.lastKernelTimeMs * 1000.0)) 
+            ImGui::Separator();
+            ImGui::Text("Active Backend: %s", (g_settings.backend == BACKEND_CUDA_GPU) ? "GPU (CUDA)" : "CPU (OpenMP)");
+            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Execution Time: %.6f seconds (%.2f ms)", 
+                g_settings.lastExecutionTimeSec, g_settings.lastExecutionTimeSec * 1000.0);
+
+            double activeThroughput = (g_settings.lastExecutionTimeSec > 1e-7)
+                ? (g_settings.totalRays / (g_settings.lastExecutionTimeSec * 1e6))
                 : 0.0;
-            ImGui::Text("Throughput: %.2f MRays/sec", mrays);
-            ImGui::Text("Resolution: %d x %d (%d rays)", g_settings.renderWidth, g_settings.renderHeight, g_settings.totalRays);
+            ImGui::Text("Active Throughput: %.2f MRays/sec", activeThroughput);
+            ImGui::Text("Resolution: %d x %d (%d primary rays)", g_settings.renderWidth, g_settings.renderHeight, g_settings.totalRays);
             ImGui::Text("Triangles in Scene: %zu", g_worldTriangles.size());
-            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.5f, 1.0f), "Zero-Copy PBO: Active (0 CPU copies)");
+            ImGui::Text("GPU Device: %s", g_cudaDeviceName.c_str());
             ImGui::Separator();
         }
 
-        // 2. Material System
-        if (ImGui::CollapsingHeader("Material System", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // 2. Performance Comparison (CPU vs GPU in SECONDS)
+        if (ImGui::CollapsingHeader("Performance Benchmark (CPU vs GPU)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::Button("Run Performance Benchmark (CPU vs GPU)", ImVec2(-1, 32))) {
+                runBenchmark();
+            }
+
+            if (g_settings.hasBenchmark) {
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "--- Benchmark Results (Frame: %d rays) ---", g_settings.benchmarkRays);
+                ImGui::Text("CPU Execution Time: %.6f seconds  (%.2f ms)", g_settings.benchmarkCpuSec, g_settings.benchmarkCpuSec * 1000.0);
+                ImGui::Text("GPU Execution Time: %.6f seconds  (%.2f ms)", g_settings.benchmarkGpuSec, g_settings.benchmarkGpuSec * 1000.0);
+                
+                double cpuMRays = (g_settings.benchmarkCpuSec > 1e-7) ? (g_settings.benchmarkRays / (g_settings.benchmarkCpuSec * 1e6)) : 0.0;
+                double gpuMRays = (g_settings.benchmarkGpuSec > 1e-7) ? (g_settings.benchmarkRays / (g_settings.benchmarkGpuSec * 1e6)) : 0.0;
+                ImGui::Text("CPU Throughput:     %.2f MRays/sec", cpuMRays);
+                ImGui::Text("GPU Throughput:     %.2f MRays/sec", gpuMRays);
+
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.5f, 1.0f), "Speedup:            %.2fx faster on GPU", g_settings.benchmarkSpeedup);
+            } else {
+                ImGui::TextDisabled("Click the button above to compare CPU vs GPU execution time in seconds.");
+            }
+            ImGui::Separator();
+        }
+
+        // 3. Shading & Materials (Diffuse Surfaces Model)
+        if (ImGui::CollapsingHeader("Shading Model (Diffuse Surfaces)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::Checkbox("Diffuse-Only Surfaces (Lambertian)", &g_settings.diffuseOnly)) {
+                g_settings.dirty = true;
+            }
+            if (ImGui::Checkbox("Enable Hard Shadows [Shadow Rays] (S)", &g_settings.enableShadows)) {
+                g_settings.dirty = true;
+            }
+            if (ImGui::Checkbox("Smooth Vertex Normals (N)", &g_settings.useSmoothNormals)) {
+                g_settings.dirty = true;
+            }
+
             if (ImGui::Combo("Material Selection", &g_selectedMaterialPreset, MATERIAL_PRESET_NAMES, IM_ARRAYSIZE(MATERIAL_PRESET_NAMES))) {
                 g_settings.dirty = true;
             }
@@ -532,40 +875,43 @@ void renderGui() {
                 int activeMatIdx = g_presetMaterialBaseIndex + (g_selectedMaterialPreset - 1);
                 if (activeMatIdx < g_sceneMaterials.size()) {
                     CudaMaterial& m = g_sceneMaterials[activeMatIdx];
-                    if (ImGui::ColorEdit3("Ambient (Ka)", glm::value_ptr(m.Ka))) g_settings.dirty = true;
-                    if (ImGui::ColorEdit3("Diffuse (Kd)", glm::value_ptr(m.Kd))) g_settings.dirty = true;
-                    if (ImGui::ColorEdit3("Specular (Ks)", glm::value_ptr(m.Ks))) g_settings.dirty = true;
-                    if (ImGui::SliderFloat("Shininess", &m.shininess, 1.0f, 128.0f)) g_settings.dirty = true;
+                    if (ImGui::ColorEdit3("Ambient (Ka)", glm::value_ptr(m.Ka))) {
+                        g_settings.dirty = true;
+                        if (g_cudaAvailable) g_cudaRayTracer.uploadScene(g_worldTriangles, g_sceneMaterials);
+                    }
+                    if (ImGui::ColorEdit3("Diffuse (Kd)", glm::value_ptr(m.Kd))) {
+                        g_settings.dirty = true;
+                        if (g_cudaAvailable) g_cudaRayTracer.uploadScene(g_worldTriangles, g_sceneMaterials);
+                    }
+                    if (!g_settings.diffuseOnly) {
+                        if (ImGui::ColorEdit3("Specular (Ks)", glm::value_ptr(m.Ks))) {
+                            g_settings.dirty = true;
+                            if (g_cudaAvailable) g_cudaRayTracer.uploadScene(g_worldTriangles, g_sceneMaterials);
+                        }
+                        if (ImGui::SliderFloat("Shininess", &m.shininess, 1.0f, 128.0f)) {
+                            g_settings.dirty = true;
+                            if (g_cudaAvailable) g_cudaRayTracer.uploadScene(g_worldTriangles, g_sceneMaterials);
+                        }
+                    }
                 }
             }
         }
 
-        // 3. Shading & Lighting Controls
-        if (ImGui::CollapsingHeader("Lighting & Shading Options", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::Checkbox("Enable Hard Shadows [Shadow Rays] (S)", &g_settings.enableShadows)) {
-                g_settings.dirty = true;
-            }
-
-            if (ImGui::Checkbox("Smooth Vertex Normals (N)", &g_settings.useSmoothNormals)) {
-                g_settings.dirty = true;
-            }
-
+        // 4. Lighting Controls
+        if (ImGui::CollapsingHeader("Lighting Options", ImGuiTreeNodeFlags_DefaultOpen)) {
             if (ImGui::Checkbox("Animate Light Orbit", &g_animateLight)) {
                 g_settings.dirty = true;
             }
-
             if (ImGui::DragFloat3("Light Position", glm::value_ptr(g_light.position), 0.1f)) {
                 g_settings.dirty = true;
             }
-
             if (ImGui::ColorEdit3("Light Ambient", glm::value_ptr(g_light.ambient))) g_settings.dirty = true;
             if (ImGui::ColorEdit3("Light Diffuse", glm::value_ptr(g_light.diffuse))) g_settings.dirty = true;
-            if (ImGui::ColorEdit3("Light Specular", glm::value_ptr(g_light.specular))) g_settings.dirty = true;
         }
 
-        // 4. Resolution & Execution Controls
+        // 5. Resolution & Execution Controls
         if (ImGui::CollapsingHeader("Resolution & Ray Controls", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::Button("Render Primary Rays Now (R)", ImVec2(-1, 30))) {
+            if (ImGui::Button("Render Frame Now (R)", ImVec2(-1, 26))) {
                 g_settings.dirty = true;
             }
 
@@ -574,8 +920,8 @@ void renderGui() {
             }
 
             const char* resOptions[] = {
-                "160 x 90  (Ultra Fast)",
-                "320 x 180 (Fast - Real-time)",
+                "160 x 90  (Ultra Fast - Recommended for CPU)",
+                "320 x 180 (Fast - Real-time Default)",
                 "480 x 270 (Balanced)",
                 "640 x 360 (High Quality)",
                 "1280 x 720 (Full HD)"
@@ -585,7 +931,7 @@ void renderGui() {
             }
         }
 
-        // 5. Scene Selection & Camera
+        // 6. Scene Selection & Camera
         if (ImGui::CollapsingHeader("Scene & Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
             if (ImGui::Combo("Active Scene", &g_selectedSceneIndex, SCENE_NAMES, IM_ARRAYSIZE(SCENE_NAMES))) {
                 if (g_selectedSceneIndex < 4) {
@@ -612,12 +958,13 @@ void renderGui() {
             }
         }
 
-        // 6. Help & Keybindings
+        // 7. Help & Keybindings
         if (ImGui::CollapsingHeader("Keyboard Controls")) {
             ImGui::BulletText("Left Mouse Drag: Orbit Camera");
             ImGui::BulletText("Mouse Scroll: Zoom Camera");
             ImGui::BulletText("W, A, S, D: Move Camera Position");
             ImGui::BulletText("Space: Toggle Real-time Ray Shooting");
+            ImGui::BulletText("B: Run CPU vs GPU Benchmark");
             ImGui::BulletText("S: Toggle Shadow Rays");
             ImGui::BulletText("N: Toggle Smooth vs Flat Normals");
             ImGui::BulletText("R: Trigger Ray Casting");
@@ -645,7 +992,7 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Task 13.1: CUDA Ray Tracer - Materials & Shading", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Lab 15: Simple Path Tracer (Diffuse & Shadows)", NULL, NULL);
     if (!window) {
         std::cerr << "[GLFW] Error: Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -683,22 +1030,50 @@ int main(int argc, char** argv) {
     if (g_cudaAvailable) {
         g_cudaDeviceName = CudaRayTracer::getDeviceName();
         std::cout << "[CUDA] Initialized GPU: " << g_cudaDeviceName << std::endl;
+        g_settings.backend = BACKEND_CUDA_GPU;
     } else {
-        std::cerr << "[CUDA] Error: No CUDA-capable GPU found! Exiting." << std::endl;
-        return -1;
+        std::cout << "[CUDA] No CUDA device available. Defaulting to CPU (OpenMP)." << std::endl;
+        g_settings.backend = BACKEND_OPENMP_CPU;
     }
 
-    // Setup Pixel Buffer Object (PBO)
+    // Setup Pixel Buffer Object (PBO) & CPU Framebuffer
     setupPBO(g_settings.renderWidth, g_settings.renderHeight);
 
     // Load initial scene
     std::string initialScene = "../../models/teapot.obj";
-    if (argc > 1) {
-        initialScene = argv[1];
-        strncpy(g_customScenePath, argv[1], sizeof(g_customScenePath) - 1);
-        g_selectedSceneIndex = 4;
+    bool cliBenchmark = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--benchmark" || std::string(argv[i]) == "-b") {
+            cliBenchmark = true;
+        } else if (argv[i][0] != '-') {
+            initialScene = argv[i];
+            strncpy(g_customScenePath, argv[i], sizeof(g_customScenePath) - 1);
+            g_selectedSceneIndex = 4;
+        }
     }
     loadScene(initialScene);
+
+    if (cliBenchmark) {
+        runBenchmark();
+        std::cout << "\n============================================================" << std::endl;
+        std::cout << "        LAB 15: CPU vs GPU PERFORMANCE BENCHMARK            " << std::endl;
+        std::cout << "============================================================" << std::endl;
+        std::cout << "Scene: " << initialScene << " (" << g_worldTriangles.size() << " triangles)" << std::endl;
+        std::cout << "Resolution: " << g_settings.renderWidth << " x " << g_settings.renderHeight 
+                  << " (" << g_settings.benchmarkRays << " primary rays)" << std::endl;
+        std::cout << "Surface Model: Diffuse Only (Lambertian)" << std::endl;
+        std::cout << "Shadow Rays:   Enabled (Direct Occlusion)" << std::endl;
+        std::cout << "------------------------------------------------------------" << std::endl;
+        std::cout << "  CPU Execution Time: " << std::fixed << std::setprecision(6) << g_settings.benchmarkCpuSec << " seconds (" << (g_settings.benchmarkCpuSec * 1000.0) << " ms)" << std::endl;
+        std::cout << "  GPU Execution Time: " << std::fixed << std::setprecision(6) << g_settings.benchmarkGpuSec << " seconds (" << (g_settings.benchmarkGpuSec * 1000.0) << " ms)" << std::endl;
+        std::cout << "  Speedup Factor:     " << std::fixed << std::setprecision(2) << g_settings.benchmarkSpeedup << "x faster on GPU" << std::endl;
+        double cpuMRays = (g_settings.benchmarkCpuSec > 1e-7) ? (g_settings.benchmarkRays / (g_settings.benchmarkCpuSec * 1e6)) : 0.0;
+        double gpuMRays = (g_settings.benchmarkGpuSec > 1e-7) ? (g_settings.benchmarkRays / (g_settings.benchmarkGpuSec * 1e6)) : 0.0;
+        std::cout << "  CPU Throughput:     " << std::fixed << std::setprecision(2) << cpuMRays << " MRays/sec" << std::endl;
+        std::cout << "  GPU Throughput:     " << std::fixed << std::setprecision(2) << gpuMRays << " MRays/sec" << std::endl;
+        std::cout << "============================================================\n" << std::endl;
+        return 0;
+    }
 
     // Initial ray cast
     renderRayTrace();
@@ -735,7 +1110,7 @@ int main(int argc, char** argv) {
         glDisable(GL_DEPTH_TEST);
         screenShader.use();
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+        glBindTexture(GL_TEXTURE_2D, g_renderTexture);
         screenShader.setInt("screenTexture", 0);
 
         glBindVertexArray(g_quadVAO);
@@ -754,7 +1129,7 @@ int main(int argc, char** argv) {
     // Cleanup resources
     glDeleteVertexArrays(1, &g_quadVAO);
     glDeleteBuffers(1, &g_quadVBO);
-    glDeleteTextures(1, &g_depthTexture);
+    glDeleteTextures(1, &g_renderTexture);
     if (g_pbo != 0) {
         glDeleteBuffers(1, &g_pbo);
     }

@@ -46,7 +46,7 @@ __device__ inline bool rayTriangleIntersect(
 }
 
 // -----------------------------------------------------------------
-// CUDA Kernel: 1-Depth Ray Tracer with Materials and Direct Lighting
+// CUDA Kernel: Simple Path Tracer (Diffuse Surfaces + Shadows)
 // -----------------------------------------------------------------
 __global__ void rayTraceMaterialKernel(
     const CudaTriangle* __restrict__ triangles,
@@ -62,6 +62,7 @@ __global__ void rayTraceMaterialKernel(
     bool enableShadows,
     bool useSmoothNormals,
     int overrideMaterialIndex,
+    bool diffuseOnly,
     uchar4* __restrict__ pboPixels
 ) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -101,7 +102,7 @@ __global__ void rayTraceMaterialKernel(
 
     int pixelIdx = y * width + x;
 
-    // If miss, render ambient sky gradient
+    // If miss, render ambient sky background
     if (hitTriIdx == -1) {
         float tSky = 0.5f * (rayDir.y + 1.0f);
         glm::vec3 skyColor = glm::mix(glm::vec3(0.08f, 0.10f, 0.15f), glm::vec3(0.20f, 0.24f, 0.35f), tSky);
@@ -142,14 +143,12 @@ __global__ void rayTraceMaterialKernel(
     }
     CudaMaterial mat = materials[matId];
 
-    // 3. Direct Lighting Calculation (Blinn-Phong)
+    // 3. Direct Lighting Calculation
     glm::vec3 toLight = light.position - hitPoint;
     float distToLight = glm::length(toLight);
     glm::vec3 L = glm::normalize(toLight);
-    glm::vec3 V = glm::normalize(-rayDir);
-    glm::vec3 H = glm::normalize(L + V);
 
-    // 4. Shadow Ray (depth 1 occlusion test)
+    // 4. Shadow Ray (depth 1 occlusion test towards light)
     float shadowFactor = 1.0f;
     if (enableShadows) {
         glm::vec3 shadowOrig = hitPoint + N * 1e-3f; // Normal offset to prevent acne
@@ -157,7 +156,7 @@ __global__ void rayTraceMaterialKernel(
             float sDist, su, sv;
             if (rayTriangleIntersect(shadowOrig, L, triangles[s], sDist, su, sv)) {
                 if (sDist > 1e-4f && sDist < distToLight) {
-                    shadowFactor = 0.0f; // In shadow
+                    shadowFactor = 0.0f; // Occluded -> in shadow
                     break;
                 }
             }
@@ -171,13 +170,20 @@ __global__ void rayTraceMaterialKernel(
     float nDotL = fmaxf(glm::dot(N, L), 0.0f);
     glm::vec3 diffuse = mat.Kd * light.diffuse * nDotL;
 
-    // Specular term (Blinn-Phong)
-    float nDotH = fmaxf(glm::dot(N, H), 0.0f);
-    float specFactor = (nDotL > 0.0f && mat.shininess > 0.0f) ? powf(nDotH, mat.shininess) : 0.0f;
-    glm::vec3 specular = mat.Ks * light.specular * specFactor;
+    glm::vec3 finalColor;
+    if (diffuseOnly) {
+        // Pure diffuse model: Ambient + Shadow * Diffuse
+        finalColor = ambient + shadowFactor * diffuse;
+    } else {
+        // Diffuse + Specular (Blinn-Phong)
+        glm::vec3 V = glm::normalize(-rayDir);
+        glm::vec3 H = glm::normalize(L + V);
+        float nDotH = fmaxf(glm::dot(N, H), 0.0f);
+        float specFactor = (nDotL > 0.0f && mat.shininess > 0.0f) ? powf(nDotH, mat.shininess) : 0.0f;
+        glm::vec3 specular = mat.Ks * light.specular * specFactor;
+        finalColor = ambient + shadowFactor * (diffuse + specular);
+    }
 
-    // Combine terms: Ambient + Shadow * (Diffuse + Specular)
-    glm::vec3 finalColor = ambient + shadowFactor * (diffuse + specular);
     finalColor = glm::clamp(finalColor, 0.0f, 1.0f);
 
     // Write RGBA pixel directly into mapped OpenGL PBO in GPU VRAM
@@ -198,24 +204,6 @@ CudaRayTracer::~CudaRayTracer() {
     cleanup();
 }
 
-void CudaRayTracer::cleanup() {
-    unregisterPBO();
-
-    if (d_triangles) {
-        cudaFree(d_triangles);
-        d_triangles = nullptr;
-    }
-    if (d_materials) {
-        cudaFree(d_materials);
-        d_materials = nullptr;
-    }
-
-    m_triangleCapacity = 0;
-    m_triangleCount = 0;
-    m_materialCapacity = 0;
-    m_materialCount = 0;
-}
-
 bool CudaRayTracer::isAvailable() {
     int deviceCount = 0;
     cudaError_t err = cudaGetDeviceCount(&deviceCount);
@@ -224,67 +212,51 @@ bool CudaRayTracer::isAvailable() {
 
 std::string CudaRayTracer::getDeviceName() {
     int device = 0;
-    if (cudaGetDevice(&device) == cudaSuccess) {
-        cudaDeviceProp prop;
-        if (cudaGetDeviceProperties(&prop, device) == cudaSuccess) {
-            return std::string(prop.name);
-        }
-    }
-    return "Unknown NVIDIA GPU";
+    cudaGetDevice(&device);
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device);
+    return std::string(prop.name);
 }
 
 void CudaRayTracer::uploadScene(const std::vector<CudaTriangle>& triangles, const std::vector<CudaMaterial>& materials) {
     m_triangleCount = triangles.size();
-    if (m_triangleCount > 0) {
-        if (m_triangleCount > m_triangleCapacity) {
-            if (d_triangles) cudaFree(d_triangles);
-            cudaError_t err = cudaMalloc(&d_triangles, m_triangleCount * sizeof(CudaTriangle));
-            if (err != cudaSuccess) {
-                std::cerr << "[CUDA] Error allocating triangles: " << cudaGetErrorString(err) << std::endl;
-                m_triangleCapacity = 0;
-                return;
-            }
-            m_triangleCapacity = m_triangleCount;
-        }
+    if (m_triangleCount == 0) return;
 
-        cudaError_t err = cudaMemcpy(d_triangles, triangles.data(), m_triangleCount * sizeof(CudaTriangle), cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[CUDA] Error copying triangles to device: " << cudaGetErrorString(err) << std::endl;
-        }
+    // 1. Upload Triangles
+    if (m_triangleCount > m_triangleCapacity) {
+        if (d_triangles) cudaFree(d_triangles);
+        m_triangleCapacity = m_triangleCount;
+        cudaMalloc(&d_triangles, m_triangleCapacity * sizeof(CudaTriangle));
     }
+    cudaMemcpy(d_triangles, triangles.data(), m_triangleCount * sizeof(CudaTriangle), cudaMemcpyHostToDevice);
 
+    // 2. Upload Materials
     m_materialCount = materials.size();
     if (m_materialCount > 0) {
         if (m_materialCount > m_materialCapacity) {
             if (d_materials) cudaFree(d_materials);
-            cudaError_t err = cudaMalloc(&d_materials, m_materialCount * sizeof(CudaMaterial));
-            if (err != cudaSuccess) {
-                std::cerr << "[CUDA] Error allocating materials: " << cudaGetErrorString(err) << std::endl;
-                m_materialCapacity = 0;
-                return;
-            }
             m_materialCapacity = m_materialCount;
+            cudaMalloc(&d_materials, m_materialCapacity * sizeof(CudaMaterial));
         }
-
-        cudaError_t err = cudaMemcpy(d_materials, materials.data(), m_materialCount * sizeof(CudaMaterial), cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            std::cerr << "[CUDA] Error copying materials to device: " << cudaGetErrorString(err) << std::endl;
-        }
+        cudaMemcpy(d_materials, materials.data(), m_materialCount * sizeof(CudaMaterial), cudaMemcpyHostToDevice);
     }
 }
 
 bool CudaRayTracer::registerPBO(GLuint pbo) {
-    unregisterPBO();
-    if (pbo == 0) return false;
-
-    cudaError_t err = cudaGraphicsGLRegisterBuffer(&m_cudaPboResource, pbo, cudaGraphicsRegisterFlagsWriteDiscard);
-    if (err != cudaSuccess) {
-        std::cerr << "[CUDA] Failed to register OpenGL PBO: " << cudaGetErrorString(err) << std::endl;
-        m_cudaPboResource = nullptr;
-        m_registeredPbo = 0;
-        return false;
+    if (m_cudaPboResource) {
+        unregisterPBO();
     }
     m_registeredPbo = pbo;
+    cudaError_t err = cudaGraphicsGLRegisterBuffer(
+        &m_cudaPboResource,
+        pbo,
+        cudaGraphicsRegisterFlagsWriteDiscard
+    );
+    if (err != cudaSuccess) {
+        std::cerr << "[CUDA] Error registering OpenGL PBO: " << cudaGetErrorString(err) << std::endl;
+        m_cudaPboResource = nullptr;
+        return false;
+    }
     return true;
 }
 
@@ -293,6 +265,22 @@ void CudaRayTracer::unregisterPBO() {
         cudaGraphicsUnregisterResource(m_cudaPboResource);
         m_cudaPboResource = nullptr;
         m_registeredPbo = 0;
+    }
+}
+
+void CudaRayTracer::cleanup() {
+    unregisterPBO();
+    if (d_triangles) {
+        cudaFree(d_triangles);
+        d_triangles = nullptr;
+        m_triangleCapacity = 0;
+        m_triangleCount = 0;
+    }
+    if (d_materials) {
+        cudaFree(d_materials);
+        d_materials = nullptr;
+        m_materialCapacity = 0;
+        m_materialCount = 0;
     }
 }
 
@@ -305,16 +293,18 @@ bool CudaRayTracer::renderRayTraceToPBO(
     bool enableShadows,
     bool useSmoothNormals,
     int overrideMaterialIndex,
-    double& outKernelTimeMs
+    bool diffuseOnly,
+    double& outKernelTimeSec
 ) {
-    if (m_triangleCount == 0 || !d_triangles || !m_cudaPboResource) {
+    if (!m_cudaPboResource || m_triangleCount == 0 || !d_triangles) {
+        outKernelTimeSec = 0.0;
         return false;
     }
 
-    // Map OpenGL PBO resource for direct CUDA write access
-    cudaError_t mapErr = cudaGraphicsMapResources(1, &m_cudaPboResource, 0);
-    if (mapErr != cudaSuccess) {
-        std::cerr << "[CUDA] Error mapping PBO resource: " << cudaGetErrorString(mapErr) << std::endl;
+    // Map OpenGL PBO for direct GPU DMA writing
+    cudaError_t err = cudaGraphicsMapResources(1, &m_cudaPboResource, 0);
+    if (err != cudaSuccess) {
+        std::cerr << "[CUDA] Error mapping PBO: " << cudaGetErrorString(err) << std::endl;
         return false;
     }
 
@@ -331,7 +321,7 @@ bool CudaRayTracer::renderRayTraceToPBO(
 
     cudaEventRecord(start);
 
-    // Launch Ray Tracing Kernel with Materials & Direct Lighting
+    // Launch Ray Tracing Kernel with Diffuse Materials & Direct Shadows
     rayTraceMaterialKernel<<<grid, block>>>(
         d_triangles,
         static_cast<int>(m_triangleCount),
@@ -346,6 +336,7 @@ bool CudaRayTracer::renderRayTraceToPBO(
         enableShadows,
         useSmoothNormals,
         overrideMaterialIndex,
+        diffuseOnly,
         d_pboPixels
     );
 
@@ -357,7 +348,7 @@ bool CudaRayTracer::renderRayTraceToPBO(
 
     float elapsedMs = 0.0f;
     cudaEventElapsedTime(&elapsedMs, start, stop);
-    outKernelTimeMs = static_cast<double>(elapsedMs);
+    outKernelTimeSec = static_cast<double>(elapsedMs) / 1000.0; // Return in seconds
 
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
