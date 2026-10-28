@@ -56,7 +56,7 @@ target_include_directories(imgui PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/glfw/include
         ${CMAKE_CURRENT_SOURCE_DIR}/glad/include
 )
-
+find_package(embree 4.0 REQUIRED)
 if(TARGET glfw)
     target_link_libraries(imgui PUBLIC glfw glad)
 else()
