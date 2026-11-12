@@ -4,10 +4,8 @@
 #include <glm/glm.hpp>
 #include "PixelFilter.h"
 
-// ── Alias directo a GLM (Elimina todo el boilerplate de operadores) ──
 using Vec3 = glm::vec3;
 
-// ── Materiales BSDF ──
 enum class MaterialType : uint32_t {
     Diffuse    = 0,
     Specular   = 1,
@@ -22,7 +20,6 @@ struct PathMaterial {
     float        roughness = 0.0f;
 };
 
-// ── Geometría de Triángulo ──
 struct PathTriangle {
     Vec3     v0, v1, v2;
     Vec3     n0, n1, n2;

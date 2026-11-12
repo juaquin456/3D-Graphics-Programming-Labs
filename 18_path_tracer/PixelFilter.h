@@ -37,12 +37,10 @@ struct FilterSettings {
 
 namespace PixelFilter {
 
-// 1. Box Filter
 FILTER_INLINE float evalBox1D(float x, float radius) {
     return (std::abs(x) <= radius) ? 1.0f : 0.0f;
 }
 
-// 2. Triangle (Tent) Filter
 FILTER_INLINE float evalTriangle1D(float x, float radius) {
     float d = std::abs(x);
     if (d > radius || radius <= 1e-6f) return 0.0f;
@@ -50,7 +48,6 @@ FILTER_INLINE float evalTriangle1D(float x, float radius) {
 }
 
 // 3. Windowed Gaussian Filter
-// Truncated so that f(radius) == 0 smoothly
 FILTER_INLINE float evalGaussian1D(float x, float radius, float alpha) {
     float d = std::abs(x);
     if (d > radius) return 0.0f;
@@ -60,10 +57,8 @@ FILTER_INLINE float evalGaussian1D(float x, float radius, float alpha) {
 }
 
 // 4. Mitchell-Netravali Cubic Spline Filter
-// Evaluates cubic spline over [-2, 2] normalized by radius
 FILTER_INLINE float evalMitchellNetravali1D(float x, float radius, float B, float C) {
     if (radius <= 1e-6f) return 0.0f;
-    // Map x so that full support is [-2, 2]
     float d = std::abs(x) * (2.0f / radius);
     if (d >= 2.0f) return 0.0f;
 
@@ -128,14 +123,12 @@ FILTER_INLINE float sobolBase2(uint32_t index, int dimension) {
     uint32_t gray = index ^ (index >> 1);
     uint32_t result = 0;
     if (dimension == 0) {
-        // Dim 0: V_j = 1 << (31 - (j-1))
         for (int j = 1; j <= 32; ++j) {
             if ((gray >> (j - 1)) & 1u) {
                 result ^= (1u << (32 - j));
             }
         }
     } else {
-        // Dim 1: m_1 = 1, m_j = 2*m_{j-1} ^ m_{j-1}
         uint32_t m = 1;
         for (int j = 1; j <= 32; ++j) {
             if (j > 1) {
@@ -149,8 +142,7 @@ FILTER_INLINE float sobolBase2(uint32_t index, int dimension) {
     return static_cast<float>(result) / 4294967296.0f;
 }
 
-// Computes 2D subpixel offset (dx, dy) relative to pixel center (px + 0.5, py + 0.5)
-// Offset is guaranteed to be within [-radiusX, radiusX] x [-radiusY, radiusY]
+
 template <typename RngFunc>
 FILTER_INLINE void getSubpixelOffset(int sampleIdx, int totalSamples,
                                      uint32_t frameIndex, uint32_t px, uint32_t py,
@@ -202,4 +194,4 @@ FILTER_INLINE void getSubpixelOffset(int sampleIdx, int totalSamples,
     outDy = (u2 - 0.5f) * (2.0f * settings.radiusY);
 }
 
-} // namespace PixelFilter
+}

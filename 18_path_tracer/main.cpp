@@ -27,9 +27,7 @@
 #include "EmbreePathTracer.h"
 #include "OptixPathTracer.h"
 #include "scene.h"
-// ─────────────────────────────────────────────────────────────
-//  Camera raygen parameter constructor
-// ─────────────────────────────────────────────────────────────
+
 inline RayGenParams makeRayGenParams(
     const glm::vec3& eye,
     const glm::vec3& lookAt,
@@ -86,7 +84,7 @@ enum class Backend { Embree, OptiX };
 Backend g_backend = Backend::OptiX;
 
 // Per-backend render dimensions
-int g_renderW = 640, g_renderH = 360;
+int g_renderW = 320, g_renderH = 180;
 
 // OpenGL resources
 GLuint g_tex     = 0;
@@ -249,9 +247,7 @@ void applyResolution(int idx) {
     setupRenderBuffers(g_renderW, g_renderH);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Main render call
-// ─────────────────────────────────────────────────────────────
+
 void doRender() {
     RayGenParams camera = makeRayGenParams(
         g_cam.position, g_cam.target, g_cam.up,
@@ -446,7 +442,7 @@ void renderGui() {
 
             // 1. Rays per pixel (SPP per frame)
             ImGui::Text("Rays / Pixel per frame: %d", g_ptSettings.filter.raysPerPixel);
-            const int sppPresets[] = {1, 2, 4, 8, 16, 32};
+            const int sppPresets[] = {1, 2, 4, 8, 16, 32, 64, 128};
             ImGui::Text("Presets:");
             for (int p : sppPresets) {
                 std::string lbl = std::to_string(p);
