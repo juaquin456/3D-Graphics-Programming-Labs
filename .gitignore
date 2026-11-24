@@ -1,0 +1,16 @@
+# Build artifacts & IDE files
+volumetric_raymarching/build/
+volumetric_raymarching/.idea/
+*.o
+*.a
+
+# Cached external binaries & dependencies (too large for GitHub)
+external/openvdb_runtime/
+external/glm/
+external/imgui/
+scripts/glslangValidator
+
+# Heavy volumetric VDB datasets & generated .raw volumes (1.6+ GB)
+assets/volumes/
+scenes/SmallCampfireVDB/
+scenes/GroundExplosionVDB/
